@@ -38,13 +38,95 @@ DXGI,DirectX都是用COM实现的。
 
 # DXGI(DirectX Graphics Infrastructure)
 
-> https://learn.microsoft.com/en-us/windows/win32/api/dxgi/
+> https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/d3d10-graphics-programming-guide-dxgi
 
-主要处理枚举Graphics adapters、Display modes、显示渲染的图像到显示器。DirectX的各个版本都会用到它。
+主要处理更低层级的任务，枚举Graphics adapters、Display modes、显示渲染的图像到显示器。这些是独立于DirectX的。
+
+IDXGIFactory用于创建DXGI相关的对象。而它本身可以通过一个全局函数直接创建：
+```c++
+ComPtr<IDXGIFactory2> factory;
+CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory));
+```
+
+## Adapter
+
+Adapter是对渲染硬件（显卡）和软件（Direct3D软光栅化器）的抽象。一台主机通常有多个Adapter，独立显卡、集成显卡、软光栅化器。
+
+可以通过枚举出所有Adapter，然后查询它是否支持我们需要的Direct3D API版本:
+```c++
+ComPtr<IDXGIAdapter1> adapter;
+for (UINT adapterIndex = 0; SUCCEEDED(pFactory->EnumAdapters1(adapterIndex, &adapter)); ++adapterIndex)
+{
+    DXGI_ADAPTER_DESC1 desc;
+    adapter->GetDesc1(&desc);
+
+    if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+    {
+        // Don't select the Basic Render Driver adapter.
+        continue;
+    }
+
+    // Check to see whether the adapter supports Direct3D 12, but don't create the
+    // actual device yet.
+    if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr)))
+    {
+        break;
+    }
+}
+```
+新版本的Factory支持设定GPU preference枚举Adapter：
+```c++
+ComPtr<IDXGIAdapter1> adapter;
+ComPtr<IDXGIFactory6> factory6;
+if (SUCCEEDED(pFactory->QueryInterface(IID_PPV_ARGS(&factory6))))
+{
+    for (
+        UINT adapterIndex = 0;
+        SUCCEEDED(factory6->EnumAdapterByGpuPreference(
+            adapterIndex,
+            DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+            IID_PPV_ARGS(&adapter)));
+        ++adapterIndex)
+    {
+        DXGI_ADAPTER_DESC1 desc;
+        adapter->GetDesc1(&desc);
+
+        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+        {
+            // Don't select the Basic Render Driver adapter.
+            continue;
+        }
+
+        // Check to see whether the adapter supports Direct3D 12, but don't create the
+        // actual device yet.
+        if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr)))
+        {
+            break;
+        }
+    }
+}
+```
+## Presentation
+图形应用会渲染出一帧图像，要求DXGI将它显示到显示设备上。通常至少会有两个Buffer，一个给DXGI显示（front buffer），另一个渲染用于渲染下一帧（back buffer）。创建和管理这两个Buffer的是SwapChain。一些应用取决于渲染一帧所花的时间或期望帧率肯能需要更多的Buffer。
+
+![](/assets/images/Buffer.png)
+
+Swap chain中的这些Buffer会被创建在显存中，然后通过DAC，把front buffer显示到最终的显示设备上。
+
+![](/assets/images/DisplaySystem.png)
+
+Swap chain在创建时必须与一个Window和Device（也可以是CommandQueue）绑定，Device是Direct3D对Adapter的抽象，需要通过Adapter创建。当Device改变时，Swap chain也必须重新创建。Swap chain的Buffer以指定大小和格式创建，也可以随时修改。渲染时，从Swap chain取出Buffer，创建RenderTarget，即可通过Direct3D向其中渲染图像。
+
+如果调用了`IDXGIFactory::MakeWindowAssociation`，用户可以通过Alt+Enter在全屏和窗口模式之间切换。
+
+### ResizeBuffer
+### HandleWindowResizing
+
 
 # DirectX12
 
 > https://learn.microsoft.com/en-us/windows/win32/direct3d12/interface-hierarchy
+![](/assets/images/Direct3D12.png)
 
 DirectX提供的功能完全是基于COM实现的。
 
