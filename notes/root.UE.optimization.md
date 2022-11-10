@@ -18,3 +18,5 @@ UE 相关的优化操作。
 - r.screenpacentage 10 降低渲染的分辨率，排除PixelShader的影响
 
 - r.RHISetGPUGaptureOptions 1, 在`ProgileGPU`中会显示每一个DrawCall的消耗
+
+* https://www.bilibili.com/video/BV1cK4y1V7bv/?vd_source=b9fb6109477c7f517e916955290f758b

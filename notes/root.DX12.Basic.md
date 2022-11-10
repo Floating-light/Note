@@ -2,7 +2,7 @@
 id: vlsuz7v50xf4mp2sui4xofo
 title: Basic
 desc: ''
-updated: 1667524447192
+updated: 1667954953088
 created: 1667017115678
 ---
 
@@ -32,7 +32,8 @@ public:
 
 其中，成员函数`QueryInterface`提供了多态性。由于COM中每个接口都有唯一的ID(GUID,在定义的时候就确定了)，所以传入一个接口ID就可以知道当前对象是否支持这个接口，如果可以就返回它的指针。因为这里只用一个GUID标识一个接口，就可以在旧版本的对象上查询新的没支持的接口。
 
-COM 对象的生命周期由引用计数控制。`AddRef`增加计数，`Release`减少计数，当计数减少到0时，`Release`就会释放这个实例。通常不显式地自己调用这两个函数，而是使用类似于智能指针的`ComPtr<T>`，自动管理其生命周期，也可以自己实现这样的引用计数器。
+COM 对象的生命周期由引用计数控制。`AddRef`增加计数，`Release`减少计数，当计数减少到0时，`Release`就会释放这个实例。通常不显式地自己调用这两个函数，而是使用类似于智能指针的`ComPtr<T>`，自动管理其生命周期，也可以自己实现这样的引用计数器。COM对象在创建时，会调用一次`AddRef`，我们拿到COM对象后如果不需要了，就要显式调用一次`Release`。
+> https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-d3d12createdevice
 
 DXGI,DirectX都是用COM实现的。
 
@@ -115,9 +116,14 @@ Swap chain中的这些Buffer会被创建在显存中，然后通过DAC，把fron
 
 ![](/assets/images/DisplaySystem.png)
 
-Swap chain在创建时必须与一个Window和Device（也可以是CommandQueue）绑定，Device是Direct3D对Adapter的抽象，需要通过Adapter创建。当Device改变时，Swap chain也必须重新创建。Swap chain的Buffer以指定大小和格式创建，也可以随时修改。渲染时，从Swap chain取出Buffer，创建RenderTarget，即可通过Direct3D向其中渲染图像。
+Swap chain在创建时必须与一个Window和Device（D3D12是CommandQueue）绑定，Device是Direct3D对Adapter的抽象，需要通过Adapter创建。当Device改变时，Swap chain也必须重新创建。Swap chain的Buffer以指定大小和格式创建，也可以随时修改。渲染时，从Swap chain取出Buffer，创建RenderTarget，即可通过Direct3D向其中渲染图像。
 
 如果调用了`IDXGIFactory::MakeWindowAssociation`，用户可以通过Alt+Enter在全屏和窗口模式之间切换。
+
+有关SwapChain的更多信息：
+
+* https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-flip-model?redirectedfrom=MSDN
+* https://www.intel.com/content/www/us/en/developer/articles/code-sample/sample-application-for-direct3d-12-flip-model-swap-chains.html
 
 ### ResizeBuffer
 ### HandleWindowResizing
