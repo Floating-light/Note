@@ -19,3 +19,4 @@ This section contains useful links to related resources.
 - [Github](https://link.dendron.so/6b24)
 - [Developer Docs](https://docs.dendron.so/)
 - [Markdown](https://wiki.dendron.so/notes/ba97866b-889f-4ac6-86e7-bb2d97f6e376/)
+- [RenderEngineForGames](https://enginearchitecture.realtimerendering.com/2021_course/)
