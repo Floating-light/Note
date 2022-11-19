@@ -2,7 +2,7 @@
 id: msqfwalrdvdb94egphhhq11
 title: Root
 desc: ''
-updated: 1668169549837
+updated: 1668729293458
 created: 1667006376454
 ---
 # Welcome to Dendron
@@ -24,6 +24,10 @@ This section contains useful links to related resources.
 
 - [GithubFlavored](https://docs.github.com/cn/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
 - [Dendron](https://wiki.dendron.so/notes/ba97866b-889f-4ac6-86e7-bb2d97f6e376/#markdown)
+
+## D3D12
+
+* https://developer.nvidia.com/dx12-dos-and-donts
 
 ## Game Rendering Engine Design 
 
