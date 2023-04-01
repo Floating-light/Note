@@ -4,3 +4,12 @@ build
 seeds
 .next
 pods/service-connections
+
+# C++ 
+*.exe
+*.ilk
+*.obj
+*.pdb
+
+# vs code 
+.vscode
