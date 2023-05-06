@@ -2,7 +2,7 @@
 id: qboqar9fpgks44ajllzaarl
 title: Blender
 desc: ''
-updated: 1683338972281
+updated: 1683341462530
 created: 1683333234256
 ---
 
@@ -32,10 +32,14 @@ Source Code
 ## Addon
 
 源码中没有插件，要自己下载。
-Blender中重新加载插件： Command -> ReloadScript
 
 * https://wiki.blender.org/wiki/Process/Addons
 * https://docs.blender.org/manual/en/latest/advanced/scripting/addon_tutorial.html
+
+### Reload Addon
+开发时在Blender中重新加载插件： Command -> ReloadScript、
+
+https://projects.blender.org/blender/blender-addons/issues/66924
 
 ### Development
 导出UE中PivotPainter2使用的纹理资源工具：
