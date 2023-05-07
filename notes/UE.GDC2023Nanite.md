@@ -2,10 +2,91 @@
 id: bnq07qttl824zwts7ghsk2f
 title: GDC2023Nanite
 desc: ''
-updated: 1683430266905
+updated: 1683461403688
 created: 1683421979323
 ---
 TODO: Displacement with Nanite
+
+# High-detail geometry with Nanite
+通常的工作流程：
+* 构建high-detail的模型
+* 导入引擎，并用自动生成的LODs作为Fallback
+
+在Fortnite中，
+* 需要频繁地发布大量内容
+* 高度可自定义的建筑系统
+* 因此，手动给每一种high-detail models的变体建模是不现实的
+  
+  ![ModelVariations](/assets/images/ModelVariations.png)
+  
+所以只能用Displacement。
+## Displacement with Nanite
+在Fortnite中，要求：
+* Crack-free meshes
+* Seamless modular tiling meshes
+* 与Fortnite中的建筑系统一起使用（这应该是一个特殊需求）
+* Scalability 
+* 容易更新旧资产
+* 低内存占用率
+* 对美术的工作流的影响也要尽可能地低
+
+1. World position offset shader
+  * Pros:
+    * 完全动态
+    * 即时更新
+  * Cons:
+    * 在NaniteMesh上用WPO，性能消耗非常大
+    * 所有Mesh默认都需要很高地曲面细分
+
+2.在DCC中使用Displacement直接建模
+  * Pros:
+    * Artist对最终效果可以完全掌控
+  * Cons:
+    * Artists将会有巨大工作量
+    * 一旦导入Engine，将难以修改，不灵活
+    * 迭代慢
+所以这两种方式都不合适。
+
+**Solution：让Artist仅创建Low-poly Mesh和Displacement map，在UE中程序化生成对应的Nanite Mesh！**
+
+## 解决常见的Displacement问题
+
+* Split vertices displacement
+
+会在Mesh上造成Crack：
+
+![Crack](/assets/images/Crask.png)
+
+* Average normal displacement
+  * Mesh会出现畸变
+  * UV展开困难
+  * 破坏modular seamless tiling meshes
+
+使用Direct and indirect displacement解决这些问题。
+* Displacement prototype in Houdini
+  * 使用Mask确定顶点是Direct还是indirect displacement
+  * Indirect displaced vertices将查找它到其它Direct vert的距离，并由此确定使用对应Direct displaced顶点的Displacement vector.
+  * 证明了这一方法的正确性，但工作流不友好。
+
+Unreal Engine geometry script prototype
+
+* 也可以达到相同的效果，但工作流上仍然不是很理想。
+
+## Move all to c++ code 
+
+* Fortnite在可破坏建筑块上使用了Texture data-driven system
+* This blends up to four material layers in a single material element 
+* Displacement texture 和相关设置就添加到这个TextureData中
+* Artist仅需要制作Displacement maps和简单的low-poly meshes
+* 然后在编辑器内根据这些Displacement maps程序化生成所有high detail meshes。
+
+### Optimizations
+
+* 仅生成最少的需要的Unique的Meshes
+* Adaptive tesselation 
+* 代码处理high detail nanite mesh的创建
+* Nanite mesh存储在DDC中
+
 # Trees and foliage
 Video ： https://www.youtube.com/watch?v=05FCjQR--Sc&list=PLZlv_N0_O1gYUMkyGerbUGedE7y-XQSJR&index=2
 ## 测试结果
