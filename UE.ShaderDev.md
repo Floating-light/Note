@@ -20,3 +20,22 @@ r.ShaderDevelopmentMode=1
 
 # 着色器调试工作流程
 * https://docs.unrealengine.com/5.3/zh-CN/shader-debugging-workflows-unreal-engine/
+
+
+## dump command 
+
+dumpmaterialstats  // dump材质统计信息到MaterialStats-2020.12.15-13.12.23.csv
+
+dumpparticlecounts  // 输出ParticleSystemComponent信息
+
+dumpparticlemem  // 输出Particel的内存占用信息
+
+particlemeshusage  // 打印particle中staticmesh使用情况
+
+DumpShaderPipelineStats  // 输出Shader Pipeline统计信息到ShaderPipelineStats-2020.12.15-13.17.00.csv
+
+dumpshaderstats  //  输出Shader统计信息到ShaderStats-2020.12.15-13.18.10.csv
+
+rhi.DumpMemory   // 打印RenderTarget的内存信息
+
+DumpAvailableResolutions  // 打印当前可使用的屏幕分辨率和刷新频率
