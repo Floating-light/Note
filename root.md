@@ -20,15 +20,3 @@ This section contains useful links to related resources.
 - [Developer Docs](https://docs.dendron.so/)
 - [Markdown](https://wiki.dendron.so/notes/ba97866b-889f-4ac6-86e7-bb2d97f6e376/)
 
-## Markdown
-
-- [GithubFlavored](https://docs.github.com/cn/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
-- [Dendron](https://wiki.dendron.so/notes/ba97866b-889f-4ac6-86e7-bb2d97f6e376/#markdown)
-
-## D3D12
-
-* https://developer.nvidia.com/dx12-dos-and-donts
-
-## Game Rendering Engine Design 
-
-- [RenderEngineForGames](https://enginearchitecture.realtimerendering.com/2021_course/)
