@@ -10,6 +10,3 @@ pods/service-connections
 *.ilk
 *.obj
 *.pdb
-
-# vs code 
-.vscode
