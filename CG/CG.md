@@ -1,11 +1,6 @@
----
-id: 8ae865spua67os02ak9wirc
-title: CG
-desc: 'Computational Geometry'
-updated: 1714615718087
-created: 1714614686413
----
 computational_geometry_algorithms_and_app
+
+计算几何相关资源
 
 * https://www.xuetangx.com/course/THU08091000327/19318293
 * https://dsa.cs.tsinghua.edu.cn/~deng/cg/index.htm

@@ -1,3 +1,10 @@
+---
+id: 8ae865spua67os02ak9wirc
+title: CG
+desc: 'Computational Geometry'
+updated: 1714615718087
+created: 1714614686413
+---
 
 ## markdown reference
 - https://code.visualstudio.com/Docs/languages/markdown
@@ -26,6 +33,8 @@ _This text will be italic_
 **This text will be bold** 
 
 __This text will be bold__
+
+
 
 ## D3D12
 
