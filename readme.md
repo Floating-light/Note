@@ -5,6 +5,8 @@ desc: 'Computational Geometry'
 updated: 1714615718087
 created: 1714614686413
 ---
+* vscode-markdown-paste-image，Markdown 粘贴图片，积极维护的[fork](https://github.com/telesoho/vscode-markdown-paste-image)
+
 
 ## markdown reference
 - https://code.visualstudio.com/Docs/languages/markdown
@@ -34,7 +36,9 @@ _This text will be italic_
 
 __This text will be bold__
 
+* 图片设置大小，居中
 
+<img src="./assets/MiniEngine/DescriptorHandleInc.png" alt="DescriptorHandleInc" style="display: block; margin: 0 auto;"  height=471.5 width="606.5">
 
 ## D3D12
 

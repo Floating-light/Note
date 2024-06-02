@@ -6,9 +6,7 @@ updated: 1668688851151
 created: 1668597462467
 ---
 
-![ads](notes/assets/images/TextureManager.png)
-
-![asd](notes/assets/images/WP_RuntimePartition.jpg)
+![ads](/assets/images/TextureManager.png)
 
 ## GpuResource
 

@@ -73,6 +73,8 @@ created: 1668254458711
 
 前四个是shader  visible，
 
+在创建一个纹理`ID3D12Resource`的同时，通常也要创建其对应的SRV，通过一个`D3D12_CPU_DESCRIPTOR_HANDLE`持有对应的SRV。
+
 ## Resource bind   
 
 创建好各种`ID3DResource`后，就可以在需要时，把这些资源绑定到Shader上。`ID3DResource`不直接绑定到shader，而是用一个额外的小对象描述`ID3DResource`的结构，称为`Descriptor`，将一个`ID3DResource`绑定到Shader的时候，只需要使用这个`Descriptor`即可。
@@ -130,6 +132,9 @@ Descriptor[不需要被释放](https://learn.microsoft.com/en-us/windows/win32/d
 > ID3D12Device::GetDescriptorHandleIncrementSize
 
 然后可以从起始Handle偏移IncrementSize的整数倍获得后续的Handle。
+<img src="../assets/MiniEngine/DescriptorHandleInc.png" alt="DescriptorHandleInc" style="display: block; margin: 0 auto;"  height=471.5 width="606.5">
+
+同样，有一个DescriptorHandle时，如果知道它是哪个Head的，也可以算出它在Heap中的位置。
 
 #### Null Descriptor
 
@@ -158,6 +163,8 @@ Copying操作是在*CPU Timeline*上立即完成的。复制操作的Source和De
 ### Descriptor headps
 理想情况下包含*descriptor tables*中的所有descriptor。所有这些descriptor都保存在*user mode heaps*。
 
+[管理DescriptorHeap](https://learn.microsoft.com/en-us/windows/win32/direct3d12/descriptor-heaps-overview#management)
+
 ### Descriptor tables
 *descriptor tables*存储在*descriptor heap*中，
 
@@ -166,4 +173,21 @@ Copying操作是在*CPU Timeline*上立即完成的。复制操作的Source和De
 Direct3D 12中，可以一次性申请一大块内存，随后App可以创建Descriptor指向这些内存。
 
 ## Texture manage
+
+`MiniEngine`中，所有Texture在加载时会预先在一个全局的DescriptorAllocator申请一个Descriptor，并创建Texutre，参考[TextureManager](MiniEngine.TextureMananger.md)。
+
+## Material
+在创建材质时，Renderer中有一个巨大DescriptorHeap，包含4096个Descriptor，直接用。每个材质从中申请固定数量的Texture，视着色模型而定。将需要的Texture的DescriptorHandle都Copy过去，不支持的Texture用合适的默认Texture代替。Copy可以混合用不同的Heap拷贝。
+
+<img src="../assets/MiniEngine/MaterialTextureDescriptor.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=524 width="750">
+
+随后还要创建每个Texture对应的Sampler。这里最好是能够给所有Sampler的设置计算一个Hash，用采样的选项的不同`D3D12_TEXTURE_ADDRESS_MODE`，以达到复用SamplerDescriptorHead的目的。创建的时候也是从一个巨大的Render的SamplerDescriptorHeap中获取连续的Descriptor。
+
+创建Sampler和Texture差不多，有个SamplerManager，也是先有一个全局的DescriptorAllocator，可以无限增长，用它创建真正的Sampler。然后Copy到渲染器使用的巨大SamplerDescriptorHeap。如果向SamplerManager请求一个已经创建过的同样配置的Sampler（通过Hash判断），会直接返回已有的，复用。
+
+<img src="../assets/MiniEngine/SamplerDescriptor.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=473 width="801">
+
+对于Renderer来说，所有材质的Texture和Sampler都是存在它指定的两个巨大Descriptor中，Mesh在渲染的时候只要知道不同材质的Texture和Sampler在这两个Heap中的偏移即可，这里直接记在了Mesh上：
+
+<img src="../assets/MiniEngine/DescriptorOffset.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=210 width="590">
 

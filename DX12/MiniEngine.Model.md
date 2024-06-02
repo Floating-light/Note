@@ -81,6 +81,8 @@ struct MaterialTextureData
 ```
 渲染管线预先定义好了支持的纹理枚举，`stringIdx`中，以纹理枚举为Index，表示对应纹理在`m_TextureNames`中的索引位置，没有就是0xFFFF，即uint16_t的最大值。`addressModes`是采样器的flag， 用一个uint32记下了所有对应texture的采样参数，按这里原来的写法，每个纹理用了四位记下两个参数，一共五张，32位绰绰有余。
 
+<img src="../assets/MiniEngine.Model/SamplerParm.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=82 width="230">
+
 `m_TextureOptions`保存每个Texture的属性，与`m_TextureNames`一一对应，这是每个纹理独立于材质的属性信息:
 ```c++
 enum TexConversionFlags
@@ -187,92 +189,21 @@ https://github.com/microsoft/DirectXMesh/wiki/OptimizeFaces
 
 https://github.com/microsoft/DirectXMesh/wiki/OptimizeFaces
 
-## mesh data 
-用PSOFlags表明这个Mesh有什么顶点数据。vertex buffer和indeces buffer等按实际情况组织。`OptimizeMesh()`
-所有Mesh的数据都存在一个Buffer里面`Renderer::CompileMesh()`，组成一个Model。
-```c++
-    struct FileHeader
-    {
-        char     id[4];   // "MINI"
-        uint32_t version; // CURRENT_MINI_FILE_VERSION
-        uint32_t numNodes;
-        uint32_t numMeshes;
-        uint32_t numMaterials;
-        uint32_t meshDataSize;
-        uint32_t numTextures;
-        uint32_t stringTableSize;
-        uint32_t geometrySize;
-        uint32_t keyFrameDataSize;      // Animation data
-        uint32_t numAnimationCurves;
-        uint32_t numAnimations;
-        uint32_t numJoints;     // All joints for all skins
-        float    boundingSphere[4];
-        float    minPos[3];
-        float    maxPos[3];
-    };
-struct Mesh
-{
-    Math::AxisAlignedBox boundingBox;
+# 自定义模型文件格式
+总体目标：
+* 最大化运行时效率
+* 加载即可使用，模型顶点、索引Buffer最好是可直接上传到GPU的格式，MaterialConstant也是，可直接上传到CBV。
+  * 这样避免了需要在CPU开辟额外的内存存放Buffer
+* 数据紧密排列，数据块各个部分的Size在Header记好，读取的时候，逻辑上保证和写的时候一样，最小化文件数据。
+  * 这样容易出错，需要更稳定的序列化系统？
+* 加载的时候直接各种GPU Buffer构建好
 
-    uint32_t materialIndex;
+保存模型时：
+* 各种顶点数据的优化要先做好
+* 包括材质，纹理信息，都一并保存 
 
-    uint32_t attribsEnabled;
-    uint32_t attribsEnabledDepth;
-    uint32_t vertexStride;
-    uint32_t vertexStrideDepth;
-    Attrib attrib[maxAttribs];
-    Attrib attribDepth[maxAttribs];
 
-    uint32_t vertexDataByteOffset;
-    uint32_t vertexCount;
-    uint32_t indexDataByteOffset;
-    uint32_t indexCount;
+# FQA
 
-    uint32_t vertexDataByteOffsetDepth;
-    uint32_t vertexCountDepth;
-};
-// All of the information that needs to be written to a .mini data file
-struct ModelData
-{
-    BoundingSphere m_BoundingSphere; 
-    AxisAlignedBox m_BoundingBox;
-    std::vector<byte> m_GeometryData;
-    std::vector<byte> m_AnimationKeyFrameData;
-    std::vector<AnimationCurve> m_AnimationCurves;
-    std::vector<AnimationSet> m_Animations;
-    std::vector<uint16_t> m_JointIndices;
-    std::vector<Matrix4> m_JointIBMs;
-    std::vector<MaterialTextureData> m_MaterialTextures;
-    std::vector<MaterialConstantData> m_MaterialConstants;
-    std::vector<Mesh*> m_Meshes;
-    std::vector<GraphNode> m_SceneGraph;
-    std::vector<std::string> m_TextureNames;
-    std::vector<uint8_t> m_TextureOptions;
-};
-
-### primitive 
-```c++
-struct Primitive
-{
-    BoundingSphere m_BoundsLS;  // local space bounds
-    BoundingSphere m_BoundsOS;  // object space bounds
-    AxisAlignedBox m_BBoxLS;       // local space AABB
-    AxisAlignedBox m_BBoxOS;       // object space AABB
-    Utility::ByteArray VB;
-    Utility::ByteArray IB;
-    Utility::ByteArray DepthVB;
-    uint32_t primCount;
-    union
-    {
-        uint32_t hash; // 与下面结构体共享一块内存
-        struct {
-            uint32_t psoFlags : 16; // 前16个bit表示pso相关配置的枚举项(输入layout，alphatest等配置)
-            uint32_t index32 : 1; // indices是不是32bit的(or 16bit)
-            uint32_t materialIdx : 15; // 材质索引
-        };
-        // Primitive.psoFlags, Primitive.index32, Primitive.materialidx可以直接访问或设置这三个部分
-        // 也可以用Primitive.hash，用这三种配置组成唯一hash值,以判断两个PSO配置是否一样.
-    };
-    uint16_t vertexStride;
-};
-```
+## 16位(2byte) IndexBuffer必须4byte对齐
+D3D12 ERROR: ID3D12CommandList::DrawIndexedInstanced: Vertex buffer GPU address for input slot 0 is not aligned. The GPU address (0x00000000109D65BA) % the stride alignment (4) must be compatible with the alignment requirements of each component in the input layout. I.e, the final computed memory address for each component must be aligned according to its format requirements. [ EXECUTION ERROR #1348: COMMAND_LIST_DRAW_ELEMENT_OFFSET_UNALIGNED]

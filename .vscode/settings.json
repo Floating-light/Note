@@ -48,5 +48,5 @@
         "xstring": "cpp",
         "xtr1common": "cpp"
     },
-    "pasteImage.path": "${currentFileDir}/${currentFileNameWithoutExt}"
+    "pasteImage.path": "${projectRoot}/assets/${currentFileNameWithoutExt}"
 }
