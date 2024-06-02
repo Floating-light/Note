@@ -200,3 +200,24 @@ Direct3D 12中，可以一次性申请一大块内存，随后App可以创建Des
   <img src="../assets/MiniEngine/DescriptorOffset.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=210 width="590">
 </p>
 
+## Model Buffer and Material Constant
+
+都是当作`D3D12_RESOURCE_DIMENSION_BUFFER`上传到DefaultHeap。先传到UploadHeap的Buffer，再Copy过去。
+
+MaterialConstant就是模型文件里保存的结构。
+
+## PSO
+在`Core`层面，有一个全局静态数据保存所有PSO：
+```c++
+static map< size_t, ComPtr<ID3D12PipelineState> > s_GraphicsPSOHashMap;
+static map< size_t, ComPtr<ID3D12PipelineState> > s_ComputePSOHashMap;
+```
+其中，key是对应的`D3D12_GRAPHICS_PIPELINE_STATE_DESC`的内存值的Hash，以及其中的`D3D12_INPUT_LAYOUT_DESC`数组中的值组合起来的Hash。这里因为`D3D12_INPUT_LAYOUT_DESC`中是一个c风格数组，所以要单独处理它的Hash:
+
+![PSOHash](../assets/DX12/PSOHash.png)
+
+因为这一层只是缓存了ID3D12PipelineState，在Renderer层面有一个全局GraphicsPSO数组，保存所有Renderer在用的PSO，`Mesh`上只是存一个PSO索引就是指向这里。
+
+GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D12_GRAPHICS_PIPELINE_STATE_DESC`，才能计算出Hash，查找真正缓存的PSO对象。在PSOFlag中记录了有那些顶点数据，根据有无的顶点数据，确定`vertexLayout`，确定对应的Shader，PSOFlag上还有BlendState，TwoSide等设置。
+
+对于创建PSO来说，只要确定了InputLayout和RootSignature就行，确定这两个，就能确定Shader。因为前面提到了，材质上所用的纹理和Constant参数都是一模一样的，没有的就用默认纹理占位，这就确定了RootSignature是一样的。
