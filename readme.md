@@ -40,6 +40,11 @@ __This text will be bold__
 
 <img src="./assets/MiniEngine/DescriptorHandleInc.png" alt="DescriptorHandleInc" style="display: block; margin: 0 auto;"  height=471.5 width="606.5">
 
+* github要这个才能正常居中：
+<p align="center">
+  <img alt="LOGO" src="./assets/MiniEngine/DescriptorHandleInc.png" height="471.5" width="606.5" />
+</p>
+
 ## D3D12
 
 * https://developer.nvidia.com/dx12-dos-and-donts

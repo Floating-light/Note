@@ -10,16 +10,20 @@ created: 1668254458711
 
 在初始化的时候就设置好一些通用的Desc，包括SamplerDesc，DescriptorHandle，RasterizerDesc，BlendDesc，DepthStencilDesc。
 
-![InitializeCommonState](/assets/images/InitializeCommonState.png)
-
----
+<p align="center">
+<img src="../assets/images/InitializeCommonState.png">
+</p>
 
 ## Resource
 
 所有Resource都是通过`ID3D12Device::CreateCommittedResource`创建的。调用这个方法会同时创建一个*ID3D12Resource*和一个堆，这种堆称为*隐式堆（implicit heap）*，因为这种堆无法被App访问。在释放最后一个Resource的引用时，必须保证GPU不再读写这个资源。本质上都是Buffer，在Desc中需要指定这个Resource的类型：
-![](/assets/images/CreateTextureResource.png)
+<p align="center">
+<img src="../assets/images/CreateTextureResource.png">
+</p>
 
-![](/assets/images/ResourceDimension.png)
+<p align="center">
+<img src="../assets/images/ResourceDimension.png">
+</p>
 
 不同类型的Resource有不同的feature：
 
@@ -42,8 +46,9 @@ created: 1668254458711
 
 因为DefaultHeap中的资源只能被GPU访问，所以CPU还不能直接把数据传给它。而且Texture不能直接放到`_UPLOAD`堆中，这就需要先把Texture数据先以Buffer类型上传到_UPLOAD堆，然后再从_UPLOAD堆复制到_DEFAULT堆。
 因此，不论是Texture资源还是顶点数据，都要先写到一个_UPLOAD堆的Resource中：
-
-![](/assets/images/MapResource.png)
+<p align="center">
+<img src="../assets/images/MapResource.png">
+</p>
 
 用`ID3D12Resource::Map`会开辟一块这个Resource的CPU虚拟地址范围，Umap会deallocate这块范围，且是线程安全的，可以多层嵌套调用。在用`Map`获得了CPU虚拟地址后，就可以用正常的*memcpy*向其中写入数据了。之后我们就可以进一步使用这个Resource了。
 
@@ -132,8 +137,9 @@ Descriptor[不需要被释放](https://learn.microsoft.com/en-us/windows/win32/d
 > ID3D12Device::GetDescriptorHandleIncrementSize
 
 然后可以从起始Handle偏移IncrementSize的整数倍获得后续的Handle。
+<p align="center">
 <img src="../assets/MiniEngine/DescriptorHandleInc.png" alt="DescriptorHandleInc" style="display: block; margin: 0 auto;"  height=471.5 width="606.5">
-
+</p>
 同样，有一个DescriptorHandle时，如果知道它是哪个Head的，也可以算出它在Heap中的位置。
 
 #### Null Descriptor
@@ -178,16 +184,19 @@ Direct3D 12中，可以一次性申请一大块内存，随后App可以创建Des
 
 ## Material
 在创建材质时，Renderer中有一个巨大DescriptorHeap，包含4096个Descriptor，直接用。每个材质从中申请固定数量的Texture，视着色模型而定。将需要的Texture的DescriptorHandle都Copy过去，不支持的Texture用合适的默认Texture代替。Copy可以混合用不同的Heap拷贝。
-
+<p align="center">
 <img src="../assets/MiniEngine/MaterialTextureDescriptor.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=524 width="750">
+</p>
 
 随后还要创建每个Texture对应的Sampler。这里最好是能够给所有Sampler的设置计算一个Hash，用采样的选项的不同`D3D12_TEXTURE_ADDRESS_MODE`，以达到复用SamplerDescriptorHead的目的。创建的时候也是从一个巨大的Render的SamplerDescriptorHeap中获取连续的Descriptor。
 
 创建Sampler和Texture差不多，有个SamplerManager，也是先有一个全局的DescriptorAllocator，可以无限增长，用它创建真正的Sampler。然后Copy到渲染器使用的巨大SamplerDescriptorHeap。如果向SamplerManager请求一个已经创建过的同样配置的Sampler（通过Hash判断），会直接返回已有的，复用。
-
-<img src="../assets/MiniEngine/SamplerDescriptor.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=473 width="801">
+<p align="center">
+  <img src="../assets/MiniEngine/SamplerDescriptor.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=473 width="801">
+</p>
 
 对于Renderer来说，所有材质的Texture和Sampler都是存在它指定的两个巨大Descriptor中，Mesh在渲染的时候只要知道不同材质的Texture和Sampler在这两个Heap中的偏移即可，这里直接记在了Mesh上：
-
-<img src="../assets/MiniEngine/DescriptorOffset.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=210 width="590">
+<p align="center">
+  <img src="../assets/MiniEngine/DescriptorOffset.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=210 width="590">
+</p>
 
