@@ -48,5 +48,7 @@
         "xstring": "cpp",
         "xtr1common": "cpp"
     },
-    "pasteImage.path": "${projectRoot}/assets/${currentFileNameWithoutExt}"
+    "pasteImage.path": "${projectRoot}/assets/${currentFileNameWithoutExt}",
+    "MarkdownPaste.path": "${workspaceRoot}/assets/${relativeFileDirname}/",
+    "MarkdownPaste.nameBase": "${selectedText|image}"
 }
