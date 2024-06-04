@@ -221,3 +221,13 @@ static map< size_t, ComPtr<ID3D12PipelineState> > s_ComputePSOHashMap;
 GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D12_GRAPHICS_PIPELINE_STATE_DESC`，才能计算出Hash，查找真正缓存的PSO对象。在PSOFlag中记录了有那些顶点数据，根据有无的顶点数据，确定`vertexLayout`，确定对应的Shader，PSOFlag上还有BlendState，TwoSide等设置。
 
 对于创建PSO来说，只要确定了InputLayout和RootSignature就行，确定这两个，就能确定Shader。因为前面提到了，材质上所用的纹理和Constant参数都是一模一样的，没有的就用默认纹理占位，这就确定了RootSignature是一样的。
+
+## RootSignature
+* [Document](https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signatures)
+
+* [关于RootSignature更详细的记录](rootSignature.md)。
+
+`RootSignature`本质上定义了一次绘制中VS，PS的全局输入。`Model`在构建Mesh的渲染流程时，只定义了一个RootSignature。对于所有的Mesh而言，场景整体的渲染效果确定后，需要传给VS，PS的数据应该也是确定了，需要用的的CBV，SRV，Sampler等也就确定了。这里的关键在于组织好RootParameter的结构，而且是一种通用的结构。
+
+
+
