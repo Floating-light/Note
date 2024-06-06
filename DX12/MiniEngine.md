@@ -174,6 +174,7 @@ Copying操作是在*CPU Timeline*上立即完成的。复制操作的Source和De
 ### Descriptor tables
 *descriptor tables*存储在*descriptor heap*中，
 
+https://learn.microsoft.com/en-us/windows/win32/direct3d12/descriptor-tables-overview
 
 ## Suballocation
 Direct3D 12中，可以一次性申请一大块内存，随后App可以创建Descriptor指向这些内存。
