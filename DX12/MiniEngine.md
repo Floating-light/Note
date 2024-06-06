@@ -229,5 +229,14 @@ GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D1
 
 `RootSignature`本质上定义了一次绘制中VS，PS的全局输入。`Model`在构建Mesh的渲染流程时，只定义了一个RootSignature。对于所有的Mesh而言，场景整体的渲染效果确定后，需要传给VS，PS的数据应该也是确定了，需要用的的CBV，SRV，Sampler等也就确定了。这里的关键在于组织好RootParameter的结构，而且是一种通用的结构。
 
+`Model`中设定了以下几种RootParameter的绑定：
+
+![me_root_parameter_setting](../assets/DX12/me_root_parameter_setting.png)
+
+* `kMeshConstants` 特定于Mesh的CBV，通常仅VS可见。例如，ObjectToWorld的变换矩阵(MVP)。
+* `KMaterialConstants` 特定于材质的CBV，仅材质可见，类似于emissiveFactor，metallicRoughnessFactor这样的材质参数。
+* `kMaterialSRVs` 特定于材质用的SRV，各种纹理。
+* `kMaterialSamplers` 特定于材质用的Sampler，通常和上面的纹理一一对应。
+* `kCommonSRVs` 
 
 
