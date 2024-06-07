@@ -207,6 +207,35 @@ Direct3D 12中，可以一次性申请一大块内存，随后App可以创建Des
 
 MaterialConstant就是模型文件里保存的结构。
 
+## RootSignature
+* [Document](https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signatures)
+
+* [关于RootSignature更详细的记录](rootSignature.md)。
+
+`RootSignature`本质上定义了一次绘制中VS，PS的全局输入。`Model`在构建Mesh的渲染流程时，只定义了一个RootSignature。对于所有的Mesh而言，场景整体的渲染效果确定后，需要传给VS，PS的数据应该也是确定了，需要用的的CBV，SRV，Sampler等也就确定了。这里的关键在于组织好RootParameter的结构，而且是一种通用的结构。
+
+`Model`中设定了以下几种RootParameter的绑定：
+
+<p align="center">
+  <img src="../assets/DX12/me_root_parameter_setting.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=232 width="213.5">
+</p>
+
+* `kMeshConstants` 特定于Mesh的CBV，通常仅VS可见。例如，ObjectToWorld的变换矩阵。
+* `KMaterialConstants` 特定于材质的CBV，仅材质可见，类似于emissiveFactor，metallicRoughnessFactor这样的材质参数。
+* `kMaterialSRVs` 特定于材质用的SRV，各种纹理。
+* `kMaterialSamplers` 特定于材质用的Sampler，通常和上面的纹理一一对应。
+* `kCommonSRVs` Shader中的全局效果用到的SRV，每个材质都一样。例如：ShadowTexture，SSAO，RadianceIBLTexture，IrradianceIBLTexture。
+  * 这里用到的Sampler也是全局一样的，所以可以设定对应的Sampler为StaticSampler。
+* `kCommonCBV` Shader中全局效果相关的参数，VS、PS均可见，ViewProjMatrix，SunShadowMatrix等。
+![me_common_cbv](../assets/DX12/me_common_cbv.png)
+* `kSkinMatrices` 蒙皮矩阵，通过一个宏控制有没有。
+
+<p align="center">
+  <img src="../assets/DX12/me_skin_matrices.png" alt="MaterialTextureDescriptor" style="display: block; margin: 0 auto;"  height=644 width="610">
+</p>
+
+这里对RootSignature也做了缓存，在计算Hash时，不能只算外层的`D3D12_ROOT_SIGNATURE_DESC`，里面嵌套的所有指针指向的数据内容都要单独计算，不同的指针也可能它的数据内容是相同的。
+
 ## PSO
 在`Core`层面，有一个全局静态数据保存所有PSO：
 ```c++
@@ -218,26 +247,21 @@ static map< size_t, ComPtr<ID3D12PipelineState> > s_ComputePSOHashMap;
 ![PSOHash](../assets/DX12/PSOHash.png)
 
 因为这一层只是缓存了ID3D12PipelineState，在Renderer层面有一个全局GraphicsPSO数组，保存所有Renderer在用的PSO，`Mesh`上只是存一个PSO索引就是指向这里。
+```c++
+std::vector<GraphicsPSO> sm_PSOs; 
+```
+GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D12_GRAPHICS_PIPELINE_STATE_DESC`，才能计算出Hash，查找真正缓存的PSO对象。
 
-GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D12_GRAPHICS_PIPELINE_STATE_DESC`，才能计算出Hash，查找真正缓存的PSO对象。在PSOFlag中记录了有那些顶点数据，根据有无的顶点数据，确定`vertexLayout`，确定对应的Shader，PSOFlag上还有BlendState，TwoSide等设置。
+* 构建vertexLayout 在PSOFlag中记录了有那些顶点数据，根据有无的顶点数据，确定`vertexLayout`，确定对应的Shader，PSOFlag上还有BlendState，TwoSide等设置。
+* 确定用什么Shader 根据psoFlags中的顶点数据信息决定，例如，有SkinWeight才用对应的Shader。
 
-对于创建PSO来说，只要确定了InputLayout和RootSignature就行，确定这两个，就能确定Shader。因为前面提到了，材质上所用的纹理和Constant参数都是一模一样的，没有的就用默认纹理占位，这就确定了RootSignature是一样的。
+对于创建PSO来说，只要确定了InputLayout和RootSignature就行，确定这两个，就能确定Shader。因为前面提到了，材质上所用的纹理和Constant参数都是一模一样的，没有的就用默认纹理占位，这就确定了RootSignature也是一样的。
 
-## RootSignature
-* [Document](https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signatures)
+## 执行渲染
 
-* [关于RootSignature更详细的记录](rootSignature.md)。
+执行渲染时，从`Model`创建`ModelInstance`，这里要处理`MeshConstants`，为每个Mesh都要创建一个，且MeshContants每帧都可能改变的，需要同时持有UploadBuffer和DefaultBffer，方便每帧更新。
+![me_initModelInstance](../assets/DX12/me_initModelInstance.png)
 
-`RootSignature`本质上定义了一次绘制中VS，PS的全局输入。`Model`在构建Mesh的渲染流程时，只定义了一个RootSignature。对于所有的Mesh而言，场景整体的渲染效果确定后，需要传给VS，PS的数据应该也是确定了，需要用的的CBV，SRV，Sampler等也就确定了。这里的关键在于组织好RootParameter的结构，而且是一种通用的结构。
+### Update阶段
 
-`Model`中设定了以下几种RootParameter的绑定：
-
-![me_root_parameter_setting](../assets/DX12/me_root_parameter_setting.png)
-
-* `kMeshConstants` 特定于Mesh的CBV，通常仅VS可见。例如，ObjectToWorld的变换矩阵(MVP)。
-* `KMaterialConstants` 特定于材质的CBV，仅材质可见，类似于emissiveFactor，metallicRoughnessFactor这样的材质参数。
-* `kMaterialSRVs` 特定于材质用的SRV，各种纹理。
-* `kMaterialSamplers` 特定于材质用的Sampler，通常和上面的纹理一一对应。
-* `kCommonSRVs` 
-
-
+遍历GraphNode，更新所有`MeshConstants`。
