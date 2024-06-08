@@ -260,8 +260,22 @@ GraphicsPSO这一层方便以统一的方式组织PSO，用PSOFlag构建出`D3D1
 ## 执行渲染
 
 执行渲染时，从`Model`创建`ModelInstance`，这里要处理`MeshConstants`，为每个Mesh都要创建一个，且MeshContants每帧都可能改变的，需要同时持有UploadBuffer和DefaultBffer，方便每帧更新。
+
 ![me_initModelInstance](../assets/DX12/me_initModelInstance.png)
 
 ### Update阶段
 
-遍历GraphNode，更新所有`MeshConstants`。
+遍历GraphNode，更新所有`MeshConstants`。遍历SceneGraph时，直接将Transform数据更新到UploadBuffer，然后执行Copy：
+```c++
+  MeshConstants* cb = (MeshConstants*)m_MeshConstantsCPU.Map();
+
+  {
+    // 遍历SceneGraph，更新MeshConstant
+  }
+
+  m_MeshConstantsCPU.Unmap();
+
+  gfxContext.TransitionResource(m_MeshConstantsGPU, D3D12_RESOURCE_STATE_COPY_DEST, true);
+  gfxContext.GetCommandList()->CopyBufferRegion(m_MeshConstantsGPU.GetResource(), 0, m_MeshConstantsCPU.GetResource(), 0, m_MeshConstantsCPU.GetBufferSize());
+  gfxContext.TransitionResource(m_MeshConstantsGPU, D3D12_RESOURCE_STATE_GENERIC_READ);
+```
