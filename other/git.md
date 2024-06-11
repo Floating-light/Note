@@ -56,3 +56,10 @@ git rebase --onto <newbase> <upstream>
 https://stackoverflow.com/questions/42536989/git-pull-rebase-lost-commits-after-coworkers-git-push-force
 
 https://stackoverflow.com/questions/42486141/git-rebase-commit-select-in-fork-point-mode
+
+# git Submodule
+git submodule add https://github.com/example/mysubmodule.git libs/mysubmodule
+git submodule init
+git submodule update
+git submodule update --init
+git submodule update --init --recursive 
