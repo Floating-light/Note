@@ -16,13 +16,11 @@ Reference:
 2. Runtime下更新Cell的加载卸载
 3. HLOD的构建
 
-# 基础配置
+# 1. 基础配置
 
 UE5中的世界分区是一种自动生成流送关卡，并在游戏中基于距离自动进行流关卡的加载卸载的系统。它根据每个`Level`的`WorldSetting`上关于`WorldPartition`的配置，自动生成流关卡和HLOD，基于`World`中`Actor`的配置，将`Actor`划分到各个流关卡中，通常称这种自动生成的流关卡为`Cell`或`StremaingCell`。一个`Cell`中包含若干个`Actor`，并最终将这些`Actor`组织在一个`LevelStreaming`中：`UWorldPartitionLevelStreamingDynamic`，它是`WorldPartition`加载卸载的最小单位。
 
 `WorldSetting`上的配置项存在于`UWorldPartition`中，而关于Cell划分方式的配置在它的一个成员变量中`UWorldPartitionRuntimeHash* RuntimeHash;`，`RuntimeHash`主要定义了如何划分Cell，`UWorldPartitionRuntimeHash`本身是一个抽象基类，主要用于抽象`Cell`的生成和管理，目前有两个不同的实现`UWorldPartitionRuntimeHashSet`和`UWorldPartitionRuntimeSpatialHash`。`WorldPartitionDetailsCustomization.cpp`中自定义了`UWorldPartition`的`DetailLayout`，我们可以直接选择用哪一个`RuntimeHashClass`，后面我们假定用就是默认的`UWorldPartitionRuntimeHashSet`。
-
-// 占位图片
 
 在`UWorldPartitionRuntimeHashSet`中，可以配置一组`FRuntimePartitionDesc`：
 ```c++
@@ -44,26 +42,31 @@ struct FRuntimePartitionDesc
 * `MainLayer`是配置`URuntimePartition`的地方。
 * `HLODSetups`是这个`WorldPartition`的`HLOD`的配置，以及`HLOD Actor`本身的`WorldParition`划分和加载方式。
 
-这里可以配置多个RuntimePartition，不同RuntimePartition可以有不同的加载范围，不同的CellSize，Actor可以配置自己选择哪一个。而不同的`URuntimePartition`主要是生成Cell的方式不同。
+`URuntimePartition`目前有三种实现：
 
-![](/assets/images/WP_RuntimePartition.jpg)
+<p align="center">
+<img src="../assets/images/WP_RuntimePartition.jpg">
+</p>
 
-不同的`URuntimePartition`派生类，核心就是实现不同的`GenerateStreaming()`，生成流送的Cell。最常用的是`URuntimePartitionLHGrid`的实现，它多了个`CellSize`的配置，将整个World划分成固定大小的Cell，所有处于同一Cell中的Actor被划分到同一个StreamingCellLevel中。
+核心就是实现`GenerateStreaming()`方法，实现不同的Cell划分方法。
 
-`URuntimePartitionLevelStreaming`则是将所有配置到同一`PartitionName`的Actor都划分到一个`Cell`中，无论这些Actor相距有多远。可以自由指定这个Parition的加载范围。一些特殊情况下，对`URuntimePartitionLHGrid`自动划分的结果不满意时，可以考虑用这个。
+* `URuntimePartitionLHGrid` 是最常用的一种`Partition`，它多了个`CellSize`的配置，将整个World三维空间均匀划分成边长为`CellSize`的立方体空间，且Cell之间是紧密无缝连接的。所有处于同一Cell中的Actor被划分到同一个StreamingCellLevel中，以Actor的Bound中心点位置为划分依据。
 
-我们无法在WorldPartition的设置里面选择`URuntimePartitionPersistent`，它只会生成一个名为`Persistent`的Cell。它是一个默认的Parition，所有没有设置为bIsSpatiallyLoaded的Actor，没有配置DataLayer，就会被放到这里，永久加载。
+* `URuntimePartitionLevelStreaming` 这种`Partition`只会生成一个Cell，所有配置到这个`Partition`的Actor都划分到这一个Cell中，无论这些Actor相距有多远。一些特殊情况下，对`URuntimePartitionLHGrid`自动划分的结果不满意时，可以考虑用这个，作为一种对`URuntimePartitionLHGrid`机制的补充。
 
+* `URuntimePartitionPersistent` 它也只会生成一个Cell，Name也是固定的`Persistent`。在WorldPartition的设置里面无法选择这个类。它极为特殊，所有不需要`SpatiallyLoaded`的Actor都会被分到这个Cell，默认就会完全加载。
 
-这一步主要是根据WorldPartition设置和场景中的Actor的配置，生成在Runtime下动态流送的关卡，这里称为`StreamingCell`。主要涉及到如何从场景中提取Actor信息，如何将Actor划分到各个Cell等。
+每一个Actor都会有一个HLOD配置，然后构建HLOD时，会生成对应的HLODActor，`HLODSetups`主要配置的是生成的HLODActor的空间加载方式。这里可以选择是否需要空间加载。如果开启IsSpatiallyLoaded，下方的PartitionLayer会是`URuntimePartitionLHGrid`，然后还可以配置它的加载范围合CellSize。如果不开启IsSpatiallyLoaded则会是`URuntimePartitionPersisten`，HLODActor会持续存在于内存中。
 
-## 1 ActorDesc
+如果Actor配置的AHLODLayer在它配置的WorldPartition中不存在，则会报错，提示Actor配置了一个无效的HLOD Layer。
 
-在生成`StreamingCell`的过程中，如何组织海量Actor的信息？因为巨大的开放世界中，可能有几万或者超过十万的Actor数量，编辑器下这些Actor是可以通过WorldPartion只加载指定区域的Actor。在生成`StreamingCell`的过程中，需要所有Actor的信息，此时如果直接加载所有Actor，可能会是个十分漫长的过程。所以，这里实现了一个机制，将所有的Actor都记录一个最小的用于WorldPartition需要的信息`FWorldPartitionActorDesc`。
+# 2. 组织Actor数据
 
-`UWorldPartition`就是WorldSettings上关于WorldPartition的设置。`UWorldPartition`继承了`FActorDescContainerInstanceCollection`，其实就是`TActorDescContainerInstanceCollection<TObjectPtr<UActorDescContainerInstance>>`，它的一个关键成员变量是`TArray<UActorDescContainerInstance*> ActorDescContainerInstanceCollection;`，里面至少有一个`UActorDescContainerInstance`，保存有当前World中所有Actor的信息，且在World中的Actor发生变化（新增，删除）时会同步更新。
+在生成`Cell`的过程中，如何组织海量Actor的信息？因为巨大的开放世界中，可能有几万或者超过十万的Actor数量，编辑器下这些Actor是可以通过WorldPartion只加载指定区域的Actor。但是在生成`StreamingCell`的过程中，需要所有Actor的信息，此时如果直接加载所有Actor，可能会是个十分漫长的过程。所以，这里实现了一个机制，将所有的Actor都记录一个最小的用于WorldPartition需要的信息`FWorldPartitionActorDesc`。
 
-对于`PersistentLevel`，`UWorldPartition::Initialize`会在`UWorld::InitWorld()`中调用。在这里初始化了`UActorDescContainerInstance`，这个过程中会相继创建`UActorDescContainer`，`UActorDescContainerInstance`。其中，`UActorDescContainer`是向`UActorDescContainerSubsystem`请求并创建。创建时，会用`AssetRegistry`扫描请求的Map下的所有Asset，对于Actor创建对应的`FWorldPartitionActorDesc`，从`FAssetData`中读取`MetaData`信息初始化`FWorldPartitionActorDesc`，并避免了加载Actor。主要的初始化方法：
+`UWorldPartition`就是WorldSettings上关于WorldPartition的设置。`UWorldPartition`继承了`FActorDescContainerInstanceCollection`，其实就是`TActorDescContainerInstanceCollection<TObjectPtr<UActorDescContainerInstance>>`，它的一个关键成员变量是`TArray<UActorDescContainerInstance*> ActorDescContainerInstanceCollection;`，里面至少有一个`UActorDescContainerInstance`，保存有当前World中所有Actor的信息，且在World中的Actor发生变化（新增，删除）时会同步更新。因为`UWorldPartition`本质是存在于`WorldSetting`中的，这份数据相当于是存在了Level上。
+
+对于`PersistentLevel`，`UWorldPartition::Initialize`会在`UWorld::InitWorld()`中调用。在这里初始化了`UActorDescContainerInstance`，这个过程中会相继创建`UActorDescContainer`，`UActorDescContainerInstance`。其中，`UActorDescContainer`是向`UActorDescContainerSubsystem`请求并创建。创建时，会用`AssetRegistry`扫描请求的Map下的所有Asset，对Actor创建对应的`FWorldPartitionActorDesc`，从`FAssetData`中读取`MetaData`信息初始化`FWorldPartitionActorDesc`，并避免了加载Actor。主要的初始化方法：
 ```c++
 void FWorldPartitionActorDesc::Init(const FWorldPartitionActorDescInitData& DescData);
 ```
@@ -76,25 +79,21 @@ void FWorldPartitionActorDesc::Init(const FWorldPartitionActorDescInitData& Desc
 
 ![](/assets/images/ActorDescContainer.jpg)
 
+# 2. 生成StreamingCell
 
-
-## 2 生成StreamingCell
-
-生成StreamingCell的过程，就是把所有Actor划分到各个Cell，并生成对应的StreamingLevel。这一过程主要从`UWorldPartition`开始的，
+生成StreamingCell的过程，就是把所有Actor划分到各个Cell，并生成对应的StreamingLevel。这一过程主要从`UWorldPartition`开始的:
 
 ![](/assets/images/WP_BeginGenerate.jpg)
 
-生成StreamingCell的主要方法是：
-```c++
-bool UWorldPartition::GenerateContainerStreaming(const FGenerateStreamingParams& InParams, FGenerateStreamingContext& InContext)
-```
-它有两个调用的时机，开始PIE和Cook的时候，生成好的`StreamingCell`中就会有自己的Actor的信息，就是一个StreamingLevel。两次调用不同之处仅仅是错误处理，要不要输出需要Cook的Package等等其它信息。这里对于生成Cell来说，最关键的就是所有Actor和WorldPartition的配置。`FGenerateStreamingParams`中有一个成员变量`FStreamingGenerationContainerInstanceCollection ContainerInstanceCollection;`表示当前这次`Generate`基于的所有Actor。
+生成StreamingCell主要有两个时机，开始PIE或Cook的时候，生成好的`StreamingCell`中就会有自己的Actor的信息，就是一个StreamingLevel。两次调用不同之处仅仅是错误处理，要不要输出需要Cook的Package等等其它信息。这里对于生成Cell来说，最关键的就是所有Actor和WorldPartition的配置。`FGenerateStreamingParams`中有一个成员变量`FStreamingGenerationContainerInstanceCollection ContainerInstanceCollection;`表示当前这次`Generate`基于的所有Actor。
 
 ![](/assets/images/WP_GenerateActorsContainer.jpg)
 
-`FStreamingGenerationContainerInstanceCollection`同样也是继承自`TActorDescContainerInstanceCollection<TObjectPtr<const UActorDescContainerInstance>>`，`FGenerateStreamingParams::SetContainerInstanceCollection()`中从`UWorldPartition`构建了一个`FStreamingGenerationContainerInstanceCollection`给后面使用，仅仅是把`UWorldPartition`中所有`UActorDescContainerInstance*`拷贝过来成了const。
+`FStreamingGenerationContainerInstanceCollection`是继承自`TActorDescContainerInstanceCollection<TObjectPtr<const UActorDescContainerInstance>>`，`FGenerateStreamingParams::SetContainerInstanceCollection()`中从`UWorldPartition`构建了一个`FStreamingGenerationContainerInstanceCollection`给后面使用，仅仅是把`UWorldPartition`中所有`UActorDescContainerInstance*`拷贝过来成了const。
 
-生成流送Cell的过程最为关键的对象是`FWorldPartitionStreamingGenerator StreamingGenerator;`，它是在`UWorldPartition::GenerateContainerStreaming()`中临时创建的，保存了生成过程中需要的几乎所有信息，还有大量的中间计算结果。
+![WP_SetContainerInstanceCollection](../assets/UE/WP_SetContainerInstanceCollection.png)
+
+`GenerateContainerStreaming()`中，构造了一个临时对象`FWorldPartitionStreamingGenerator StreamingGenerator;`，它是生成流送Cell的过程最为关键的对象，保存了生成过程中需要的几乎所有信息，还有大量的中间计算结果。
 
 第一步`StreamingGenerator.PreparationPhase(InParams.ContainerInstanceCollection)`利用`ContainerInstanceCollection`初始化所有ActorDesc，构建后续要用的数据结构。最关键的结果是：
 
@@ -141,9 +140,9 @@ class FContainerCollectionInstanceDescriptor:
 下一步`ResolveContainerDescriptor()`，对`ActorDescViewMap`中所有ActorDescViewmap执行一系列操作：
 * 如果WorldPartition没有开启Streaming：
   * 强制关掉Actor的SpatiallyLoaded：FStreamingGenerationActorDescView::SetForcedNonSpatiallyLoaded()。
-  * 强行把RuntimeGrid设为Non： FStreamingGenerationActorDescView::SetForcedNoRuntimeGrid()。
+  * 强行把RuntimeGrid设为None： FStreamingGenerationActorDescView::SetForcedNoRuntimeGrid()。
 * DataLayer处理，兼容旧的配置
-* HLODLayer，如果没有配置，则使用WorldPartition上配置的默认HLOD。
+* HLODLayer，如果没有配置，则使用WorldPartition上配置的默认HLOD，无论如何，所有Actor都会有HLOD配置。
 * 处理有父Actor的情况，更新ParentVew或者ParentActor的Transform(如果ParentActor是EditorOnly的)。
 
 `FStreamingGenerationActorDescView`会持有其ParentActor的View, 如果Parent是EditorOnly的Actor，则只记一个Transform。
@@ -209,11 +208,11 @@ FName FStreamingGenerationActorDescView::GetRuntimeGrid() const
 
 随后在`ValidateContainerDescriptor()`还执行大量验证，检查所有Actor的设置与WorldPartition的设置有没有冲突，这里可能会强行改变一些ActorView的设置。这里还会处理Actor的引用，将ParentActor的所有ChildrenActor加到它的引用里面，其它属性的引用，在初始化ActorDesc的时候会通过`ActorsReferencesUtils::GetActorReferences()`处理。并且处于一套引用链下的Actor都应该在同一DataLayers、GridName下。
 
-构建Clusters。因为Actor之间有强引用或者父子关系，则必须出现在同一个Cell，不然这个引用关系就会被打破。所以这里将有引用关系的Actor组合在一起，视为一个划分Cell的基本单位 —— Cluster。如果一个Actor没有引用任何别的Actor，也没被别的Actor引用，那这一个Actor就会单独处于一个Cluster中。Cluster中的Actor以它们组成的Bound计算Cell划分，这一过程在`UpdateContainerDescriptor()`中实现。
+构建Clusters。因为Actor之间有强引用或者父子关系，则必须出现在同一个Cell，不然这个引用关系就会被打破。所以这里将有引用关系的Actor组合在一起，视为一个划分Cell的基本单位 —— Cluster。如果一个Actor没有引用任何别的Actor，也没被别的Actor引用，那这一个Actor就会单独处于一个Cluster中。Cluster中的Actor以它们组成的Bound计算Cell划分，这一过程在`UpdateContainerDescriptor()`中实现。后续计算Actor的Cell，也会将Clusters视为整体考虑。
 
 最后还集中处理了所有Actor的`FPerInstanceData`，即Actor所属的RuntimeGrid，DataLayers，bIsSpatiallyLoaded等。
 
-至此，`StreamingGenerator`中就包含了所有Actor的信息，以及将这些Actor按引用关系分好了组，同一组Actor的GridName、DataLayers是相同的。
+至此，`StreamingGenerator`中就包含了所有Actor的信息，以及将这些Actor按引用关系分好了组(Cluster)，同一组Actor的GridName、DataLayers是相同的。
 
 在开始生成Cell前，为了将生成过程与ActorDesc的具体组织方式解耦，这里需要用前面生成的ActorDescView、Cluster信息，构建一个`IStreamingGenerationContext`。它将Cluster构建成一个个`FActorSetInstance`表示一组互相有引用，RuntimeGrid、DataLayer一致的Actor，且必须处于同一个Cell。这个接口管理的最小单位就是`FActorSetInstance`，里面记录了`ActorSet`的Bounds、RuntimeGrid、DataLayers等信息。处于同一个ContainerIsntance的Actor放在一个`FActorSetContainerInstance`中。具体构建过程在`FWorldPartitionStreamingGenerator::GetStreamingGenerationContext()`.
 
@@ -258,11 +257,12 @@ public:
 
 FStreamingGenerationContextProxy GenerationContextProxy(StreamingGenerator.GetStreamingGenerationContext(InParams.ContainerInstanceCollection));
 ```
+## 2.1 UWorldPartitionRuntimeHashSet
 然后开始生成Cell：
 ```c++
 RuntimeHash->GenerateStreaming(StreamingPolicy, &GenerationContextProxy, InContext.PackagesToGenerate)
 ```
-这里RuntimeHash通常是`UWorldPartitionRuntimeHashSet`。一下就以它分析整个生成Cell的过程。
+这里RuntimeHash通常是`UWorldPartitionRuntimeHashSet`。以下就以它分析整个生成Cell的过程。
 
 在`UWorldPartitionRuntimeHashSet::GenerateStreaming()`中首先构建了`PersistentPartitionDesc`，
 
@@ -274,6 +274,7 @@ RuntimeHash->GenerateStreaming(StreamingPolicy, &GenerationContextProxy, InConte
 * RuntimeGrid还可以是`GridName：HLODLayerObjectName`这种形式。则这个Actor会被分配到`GridName`下的HLOD配置`HLODLayerObjectName`对应的`PartitionLayer`。
   * 生成的HLODActor会自动把GridName配置成这种形式。
   * 如果`GridName`没有这个HLOD配置，这个ActorSet会被直接忽略！！！
+  * 如果HLODActor上配置的HLODLayer在对应的WorldPartition上不存在，则在前面的验证中就会报错。
 这样就得到了一组`[URuntimePartition <-> TArray<FActorSetInstance>]`。对所有Pair调用`URuntimePartition::GenerateStreaming`，生成`URuntimePartition::FCellDesc`，每个CellDesc都包含一组`FActorSetInstance`。注意这里根据配置，有不同的`URuntimePartition`子类，实现了不同的Cell划分方式，其中最常用的是`URuntimePartitionLHGrid`，它的划分方式最复杂，也最常用。
 
 `URuntimePartitionLHGrid`本质上是把整个World划分成具有MipLevel等级的3D格子。
@@ -316,11 +317,13 @@ static inline FCellCoord GetCellCoords(const FVector& InPos, int32 InCellSize, i
 }
 ``` 
 
-划分好Cell之后，我们得到一组`[URuntimePartition <-> FCellDesc]`，其中`FCellDesc`包含了一组`ActorSet`。`FCellDesc`没有考虑处于不同DataLayer的ActorSet的情况，所以再将`FCellDesc`重新划分成`FCellDescInstance`：如果一个`FCellDesc`的ActorSet处于不同DataLayer，其它参数保持一致的情况下分裂成两个`FCellDescInstance`，仅DataLayer不同。
-
+划分好Cell之后，我们得到一组`[URuntimePartition <-> FCellDesc]`，其中`FCellDesc`包含了一组`ActorSet`。`FCellDesc`没有考虑处于不同DataLayer的ActorSet的情况，所以再将`FCellDesc`重新划分成`FCellDescInstance`：
+```
+如果一个`FCellDesc`的ActorSet处于不同DataLayer，其它参数保持一致的情况下分裂成两个`FCellDescInstance`，仅DataLayer不同。
+```
 然后对每一个`FCellDescInstance`创建`UWorldPartitionRuntimeCell`，`UWorldPartitionRuntimeCell`的具体类型是由`UWorldPartitionStreamingPolicy`决定的，这里通常是`UWorldPartitionLevelStreamingPolicy -> UWorldPartitionRuntimeLevelStreamingCell`。并对每一个处于这个Cell中的`FActorInstance`调用`UWorldPartitionRuntimeCell::AddActorToCell`，构建对应的`TArray<FWorldPartitionRuntimeCellObjectMapping> Packages;`，每个Package都是一个Actor的路径引用，用于最终生成`UWorldPartitionLevelStreamingDynamic`，实现通过流关卡加载卸载Cell。最终，Cell会保存在`UWorldPartitionRuntimeHashSet::RuntimeStreamingData`中。
 
-通常可以看到对应Cell的名字信息：
+生成的CellName包含了一些有用的调试信息：
 
 Cell ID : WorldName_CellName_DataLayerID_ContextBundleID
 
@@ -329,4 +332,8 @@ CellGUID也由这个ID的MD5组成
 CellName : PartitionName_CellName
 
 ![](/assets/images/WorldPartition_CellName.png)
+
+## 2.2 UWorldPartitionRuntimeSpatialHash
+
+# 3. 生成HLOD Actor
 
