@@ -1,4 +1,4 @@
-IDXGISwapChain::Present
+# IDXGISwapChain::Present
 
 * 将BackBuffer和FrontBuffer进行交换，自动选择合适的
   * IDXGISwapChain3::GetCurrentBackBufferIndex得到应该渲染到的BackBuffer
@@ -8,7 +8,7 @@ IDXGISwapChain::Present
 * Present会确保之前的渲染命令都执行完才呈现结果。会启动图形管线中的一些同步机制。
 
 
-三缓冲区渲染循环：
+# 三缓冲区渲染循环
 
 1. 同步
    * Wait同步sm_Fence
@@ -28,3 +28,14 @@ IDXGISwapChain::Present
 * 然后等待【录制完第n-1帧】时插入的Fence，确保第n-1帧的所有命令执行完毕。
 * 插入新的第n帧渲染命令的同步Fence。
 * 最后开始下一帧(n+1)的命令录制。
+
+# FQA
+D3D12 ERROR: ID3D12CommandQueue::ExecuteCommandLists: A command list, which writes to a swapchain back buffer, may only be executed on the command queue associated with that buffer. 
+Swap Chain: 0x0000015F95F38330:'Unnamed Object' - 
+Swap Chain Buffer: 0x0000015F95F98070:'Unnamed ID3D12Resource Object' - 
+Swap Chain Buffer's Command Queue: 0x0000015F95D732D0:'Unnamed ID3D12CommandQueue Object' - 
+Attempted Execution Command Queue: 0x0000015F946C6210:'CommandListManager::m_CommandQueue' [ STATE_SETTING ERROR #907: EXECUTECOMMANDLISTS_WRONGSWAPCHAINBUFFERREFERENCE]
+D3D12: Removing Device.
+
+
+D3D12 ERROR: ID3D12CommandList::DrawInstanced: The render target format in slot 0 does not match that specified by the current pipeline state. (pipeline state = R8G8B8A8_UNORM, render target format = R10G10B10A2_UNORM, RTV ID3D12Resource* = 0x000001DBB9365C20:'Unnamed ID3D12Resource Object') [ EXECUTION ERROR #613: RENDER_TARGET_FORMAT_MISMATCH_PIPELINE_STATE]
