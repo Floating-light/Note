@@ -45,6 +45,10 @@ ResourceBarrier通知Driver，同步对一个资源内存的访问。用Resource
    * 在资源屏障完成后，GPU 将继续处理命令列表中的后续命令。在这一点上，资源已经处于 D3D12_RESOURCE_STATE_GENERIC_READ 状态，并且可以安全地进行读取操作。
 
 # BEGIN_ONLY 和 END_ONLY
+[Split Barriers](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12#split-barriers)
+
+[使用SplitBarriers](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12#example-of-split-barriers)
+
 还有两种特殊的转换方式`D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY`和 `D3D12_RESOURCE_BARRIER_FLAG_END_ONLY`。分别只关系资源的StateBefore和StateAfter相关的操作。
 
 * D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY
@@ -56,4 +60,6 @@ ResourceBarrier通知Driver，同步对一个资源内存的访问。用Resource
   * 会在假设资源的StateBefore相关的操作都已经转换完成。
   * 确保资源最后处于StateAfter的状态
 
-这两个标记将一个完整的资源转换过程分成两部分，在进行完`BEGIN_ONLY`后，就可以进行一些复杂的计算任务，这些任务必须确保只对资源进行StateAfter状态下的操作，因为状态转换并没有完全完成。最后再进行`END_ONLY`的转换，把资源转换成一个稳定的目标状态（StateAfter），这次转换的StateBefore是上次`BEGIN_ONLY`的StateAfter，StateAfter可以是你期望的任何状态。
+这两个标记将一个完整的资源转换过程分成两部分，在进行完`BEGIN_ONLY`后，就可以进行一些复杂的计算任务，这些任务必须确保只对资源进行StateAfter状态下的操作，因为状态转换并没有完全完成。
+* 最后再进行`END_ONLY`的转换，确保把资源转换成目标状态（StateAfter）。
+* 也可以从StateBefore转换到新的StateAfter。
