@@ -96,43 +96,32 @@ typedef struct D3D12_RENDER_TARGET_BLEND_DESC {
 ```
 以下是各个属性的详细解释：
 
-BlendEnable:
-
-类型: BOOL
+1. BOOL BlendEnable:
 说明: 指定是否启用混合。当 TRUE 时启用混合；当 FALSE 时禁用。
-LogicOpEnable:
 
-类型: BOOL
-说明: 指定是否启用逻辑操作。当 TRUE 时启用逻辑操作，使用 LogicOp 属性；当 FALSE 时禁用。
-SrcBlend:
+2. BOOL LogicOpEnable:
+说明: 指定是否启用逻辑操作。当 TRUE 时启用逻辑操作，使用 LogicOp 属性；当 FALSE 时禁用。使用`LogicOp`定义的操作，直接对两个RGBA的各个分量进行操作。不再使用后面定义的复杂D3D12_BLEND。
 
-类型: D3D12_BLEND
-说明: 指定源混合因子，决定如何处理源颜色（新绘制的像素颜色）。常见值包括 D3D12_BLEND_ONE、D3D12_BLEND_SRC_ALPHA 等。
-DestBlend:
-
-类型: D3D12_BLEND
-说明: 指定目标混合因子，决定如何处理目标颜色（帧缓冲区中的颜色）。常见值包括 D3D12_BLEND_ZERO、D3D12_BLEND_INV_SRC_ALPHA 等。
-BlendOp:
-
-类型: D3D12_BLEND_OP
-说明: 指定混合操作，用于将源颜色和目标颜色组合。常见值包括 D3D12_BLEND_OP_ADD、D3D12_BLEND_OP_SUBTRACT 等。
-SrcBlendAlpha:
-
-类型: D3D12_BLEND
-说明: 指定源 Alpha 混合因子，决定如何处理源 Alpha（新绘制的像素的 Alpha 值）。
-DestBlendAlpha:
-
-类型: D3D12_BLEND
-说明: 指定目标 Alpha 混合因子，决定如何处理目标 Alpha（帧缓冲区中现有的 Alpha 值）。
-BlendOpAlpha:
-
-类型: D3D12_BLEND_OP
-说明: 指定 Alpha 混合操作，用于将源 Alpha 和目标 Alpha 组合。
-LogicOp:
-
-类型: D3D12_LOGIC_OP
+3. D3D12_LOGIC_OP LogicOp:
 说明: 指定逻辑操作，用于在逻辑操作模式下组合源和目标颜色。例如 D3D12_LOGIC_OP_CLEAR、D3D12_LOGIC_OP_SET 等（仅在 LogicOpEnable 为 TRUE 时适用）。
-RenderTargetWriteMask:
 
-类型: UINT8
+4. UINT8 RenderTargetWriteMask:
 说明: 指定渲染目标的写入掩码，确定哪些颜色通道（Red、Green、Blue、Alpha）能够被写入。可以是 D3D12_COLOR_WRITE_ENABLE_RED、D3D12_COLOR_WRITE_ENABLE_GREEN、D3D12_COLOR_WRITE_ENABLE_BLUE、D3D12_COLOR_WRITE_ENABLE_ALPHA 的组合。
+
+`SrcBlend`,`DestBlend`,`BlendOp`定义了新绘制的颜色如何与RenderTarget中已有的颜色混合。`SrcBlend`定义新绘制的颜色的系数计算方式，`DestBlend`定义的是RenderTarget中已有的颜色的系数计算方式，`BlendOp`定义了把这两个颜色分别乘以各自的系数后，如何组合起来，计算公式如下：
+```c++
+SourceColor=(Rs,Gs,Bs)
+DestColor=(Rd,Gd,Bd)
+BlendOp = +
+ResultColor = SrcBlendFactor * SourceColor + DestBlendFactor * DestColor
+
+如果
+SrcBlend=D3D12_BLEND_SRC_ALPHA
+DestBlend=D3D12_BLEND_INV_SRC_ALPHA
+ResultColor = (As) * SourceColor + (1-As) * DestColor
+
+BlendOp还有以下选择：
+D3D12_BLEND_OP_SUBTRACT 从Src的值减去Dest的值
+D3D12_BLEND_OP_REV_SUBTRACT 从Dest的值减去Src的值
+```
+`SrcBlendAlpha`,`DestBlendAlpha`,`BlendOpAlpha`也是一样的，不过仅针对如何混合最终的Alpha值。
