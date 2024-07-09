@@ -1,20 +1,3 @@
----
-id: l1eh5az6g1q39v5i2idd0qh
-title: WorldPartition
-desc: ''
-updated: 1716518751710
-created: 1715128534002
----
-
-Reference:
-
-* https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition-in-unreal-engine
-* https://zhuanlan.zhihu.com/p/502053365
-* source ：https://zhuanlan.zhihu.com/p/503260506
-
-1. WorldPartition 构建StreamingCell
-2. Runtime下更新Cell的加载卸载
-3. HLOD的构建
 
 # 1. 基础配置
 
@@ -39,8 +22,10 @@ struct FRuntimePartitionDesc
 每个`FRuntimePartitionDesc`描述了一种WorldPartition划分的基本信息：
 * `URuntimePartition`的具体Class，有两种Class可供选择，实现了不同的`Cell`划分方式。
 * `Name`是这个`Partition`的`Name`，`Actor`可以在配置中指定一个`PartitionName`，就会被划分到指定`Parition`。
-* `MainLayer`是配置`URuntimePartition`的地方。
+  * 默认必有一个名为MainGrid的配置。
+* `MainLayer`是具体配置`URuntimePartition`的地方，随所选Class的不同而不同。
 * `HLODSetups`是这个`WorldPartition`的`HLOD`的配置，以及`HLOD Actor`本身的`WorldParition`划分和加载方式。
+  * HLOD只有被加载了，才会在对应的原Cell卸载时被显示出来。
 
 `URuntimePartition`目前有三种实现：
 
@@ -58,11 +43,15 @@ struct FRuntimePartitionDesc
 
 每一个Actor都会有一个HLOD配置，然后构建HLOD时，会生成对应的HLODActor，`HLODSetups`主要配置的是生成的HLODActor的空间加载方式。这里可以选择是否需要空间加载。如果开启IsSpatiallyLoaded，下方的PartitionLayer会是`URuntimePartitionLHGrid`，然后还可以配置它的加载范围合CellSize。如果不开启IsSpatiallyLoaded则会是`URuntimePartitionPersisten`，HLODActor会持续存在于内存中。
 
+:question:HLOD何时加载？何时卸载？如何与原始Actor的加载卸载联系起来的？
+
 如果Actor配置的AHLODLayer在它配置的WorldPartition中不存在，则会报错，提示Actor配置了一个无效的HLOD Layer。
 
 # 2. 组织Actor数据
 
 在生成`Cell`的过程中，如何组织海量Actor的信息？因为巨大的开放世界中，可能有几万或者超过十万的Actor数量，编辑器下这些Actor是可以通过WorldPartion只加载指定区域的Actor。但是在生成`StreamingCell`的过程中，需要所有Actor的信息，此时如果直接加载所有Actor，可能会是个十分漫长的过程。所以，这里实现了一个机制，将所有的Actor都记录一个最小的用于WorldPartition需要的信息`FWorldPartitionActorDesc`。
+
+![](/assets/images/ActorDescContainer.jpg)
 
 `UWorldPartition`就是WorldSettings上关于WorldPartition的设置。`UWorldPartition`继承了`FActorDescContainerInstanceCollection`，其实就是`TActorDescContainerInstanceCollection<TObjectPtr<UActorDescContainerInstance>>`，它的一个关键成员变量是`TArray<UActorDescContainerInstance*> ActorDescContainerInstanceCollection;`，里面至少有一个`UActorDescContainerInstance`，保存有当前World中所有Actor的信息，且在World中的Actor发生变化（新增，删除）时会同步更新。因为`UWorldPartition`本质是存在于`WorldSetting`中的，这份数据相当于是存在了Level上。
 
@@ -76,8 +65,6 @@ void FWorldPartitionActorDesc::Init(const FWorldPartitionActorDescInitData& Desc
 `FWorldPartitionActorDesc`主要保存关卡中Actor实例的基本信息，其中与WorldPartition和HLOD相关的所有设置项，都会被单独保存一遍，主要原因还是Actor可以不加载，但是与它相关的WorldPartition信息必须有。
 
 而`UActorDescContainerInstance`中，保存的是`FWorldPartitionActorDescInstance`，其中持有对`FWorldPartitionActorDesc`的引用，且包装了`FWorldPartitionActorDesc`的几乎所有方法，里面多了一些引用计数，强制改变的的一些设置`bIsForcedNonSpatiallyLoaded`。在创建时，会根据对应`UActorDescContainer`有的`ActorDesc`创建`ActorDescInstance`，同时监听`UActorDescContainer`添加和移除`ActorDesc`的事件，以更新`UActorDescContainerInstance`中的`ActorDescInstance`。
-
-![](/assets/images/ActorDescContainer.jpg)
 
 # 2. 生成StreamingCell
 
@@ -93,7 +80,7 @@ void FWorldPartitionActorDesc::Init(const FWorldPartitionActorDescInitData& Desc
 
 ![WP_SetContainerInstanceCollection](../assets/UE/WP_SetContainerInstanceCollection.png)
 
-`GenerateContainerStreaming()`中，构造了一个临时对象`FWorldPartitionStreamingGenerator StreamingGenerator;`，它是生成流送Cell的过程最为关键的对象，保存了生成过程中需要的几乎所有信息，还有大量的中间计算结果。
+`GenerateContainerStreaming()`中，构造了一个临时对象`FWorldPartitionStreamingGenerator StreamingGenerator;`，它负责构建生成Cell过程中需要的几乎所有信息，还有大量的中间计算结果。
 
 第一步`StreamingGenerator.PreparationPhase(InParams.ContainerInstanceCollection)`利用`ContainerInstanceCollection`初始化所有ActorDesc，构建后续要用的数据结构。最关键的结果是：
 
@@ -257,6 +244,7 @@ public:
 
 FStreamingGenerationContextProxy GenerationContextProxy(StreamingGenerator.GetStreamingGenerationContext(InParams.ContainerInstanceCollection));
 ```
+
 ## 2.1 UWorldPartitionRuntimeHashSet
 然后开始生成Cell：
 ```c++
@@ -275,6 +263,7 @@ RuntimeHash->GenerateStreaming(StreamingPolicy, &GenerationContextProxy, InConte
   * 生成的HLODActor会自动把GridName配置成这种形式。
   * 如果`GridName`没有这个HLOD配置，这个ActorSet会被直接忽略！！！
   * 如果HLODActor上配置的HLODLayer在对应的WorldPartition上不存在，则在前面的验证中就会报错。
+
 这样就得到了一组`[URuntimePartition <-> TArray<FActorSetInstance>]`。对所有Pair调用`URuntimePartition::GenerateStreaming`，生成`URuntimePartition::FCellDesc`，每个CellDesc都包含一组`FActorSetInstance`。注意这里根据配置，有不同的`URuntimePartition`子类，实现了不同的Cell划分方式，其中最常用的是`URuntimePartitionLHGrid`，它的划分方式最复杂，也最常用。
 
 `URuntimePartitionLHGrid`本质上是把整个World划分成具有MipLevel等级的3D格子。
@@ -321,9 +310,15 @@ static inline FCellCoord GetCellCoords(const FVector& InPos, int32 InCellSize, i
 ```
 如果一个`FCellDesc`的ActorSet处于不同DataLayer，其它参数保持一致的情况下分裂成两个`FCellDescInstance`，仅DataLayer不同。
 ```
-然后对每一个`FCellDescInstance`创建`UWorldPartitionRuntimeCell`，`UWorldPartitionRuntimeCell`的具体类型是由`UWorldPartitionStreamingPolicy`决定的，这里通常是`UWorldPartitionLevelStreamingPolicy -> UWorldPartitionRuntimeLevelStreamingCell`。并对每一个处于这个Cell中的`FActorInstance`调用`UWorldPartitionRuntimeCell::AddActorToCell`，构建对应的`TArray<FWorldPartitionRuntimeCellObjectMapping> Packages;`，每个Package都是一个Actor的路径引用，用于最终生成`UWorldPartitionLevelStreamingDynamic`，实现通过流关卡加载卸载Cell。最终，Cell会保存在`UWorldPartitionRuntimeHashSet::RuntimeStreamingData`中。
+然后对每一个`FCellDescInstance`创建`UWorldPartitionRuntimeCell`：
 
-生成的CellName包含了一些有用的调试信息：
+![CreateRuntimeCell](../assets/UE/CreateRuntimeCell.png)
+
+`UWorldPartitionRuntimeCell`的具体类型是由`UWorldPartitionStreamingPolicy`决定的，这里通常是`UWorldPartitionLevelStreamingPolicy -> UWorldPartitionRuntimeLevelStreamingCell`。并对每一个处于这个Cell中的`FActorInstance`调用`UWorldPartitionRuntimeCell::AddActorToCell`，构建对应的`TArray<FWorldPartitionRuntimeCellObjectMapping> Packages;`，每个Package都是一个Actor的路径引用，用于最终生成`UWorldPartitionLevelStreamingDynamic`，实现通过流关卡加载卸载Cell。最终，Cell会保存在`UWorldPartitionRuntimeHashSet::RuntimeStreamingData`中。有关`UWorldPartitionRuntimeCell`动态加载卸载的逻辑后面再讲。
+
+![StreamingData](../assets/UE/StreamingData.png)
+
+此外，生成的CellName包含了一些有用的调试信息：
 
 Cell ID : WorldName_CellName_DataLayerID_ContextBundleID
 
@@ -335,5 +330,54 @@ CellName : PartitionName_CellName
 
 ## 2.2 UWorldPartitionRuntimeSpatialHash
 
-# 3. 生成HLOD Actor
+`FSpatialHashRuntimeGrid`等同于`UWorldPartitionRuntimeHashSet`中的`FRuntimePartitionDesc`，定义了Grid划分方式的配置。
 
+可以配置多个`FSpatialHashRuntimeGrid`。其划分方式为：
+* 可以配置一个Origin点，扩展整个世界的Bounds到以这个原点为中心，得到新的Bounds。
+* 根据CellSize计算GridSize，确保GridSize是2的幂，并用Log2向上取整得到Level层数。
+  * 如果一个2K的图，Origin就是原点，那
+    ```
+    GridSize=2*Ceil(100800/ 12800)=16;
+    GridLEvelCount=Floor(Log2 GridSize) + 1;
+    ```
+![GridSize_LevelNum](../assets/UE/GridSize_LevelNum.png)
+* Level每高一级，GridSize就减小一倍,但是这样会导致下一个Level的Cell的边与上一个是完美重合的，这会导致边界上的Actor在向上查找完全包含自己的Cell时过度向上提升。
+  * bUseAlignedGridLevels取消勾选这个选项，会给每一Level的GridSize加1，避免完美对齐。
+![NonAlignedGridLevels](../assets/UE/NonAlignedGridLevels.png)
+* 最终划分出的Cell为：
+
+| Level    | CellSize | GridSize |
+| :-------:| :-------:| :------: |
+| 0        |   12800  |  17      |
+| 1        |   25600  |  9       |
+| 2        |   51200  |  5       |
+| 3        |   102400 |  3       |
+| 4        |   204800 |  1       |
+
+有两种方式计算一个ActorSet应该位于哪个GridCell，所有方法都不考虑Z方向的Bound长度。
+* 使用ActorSet Bound中心点位置
+  * 如果`UWorldPartitionRuntimeSpatialHash`的设置上勾选了`bPlaceSmallActorsUsingLocation`，并且ActorSet的Bounds面积小于等于第0个Level的Cell面积。且GridLevel为0。
+  * 如果勾选了`bPlacePartitionActorsUsingLocation`，并且ActorSet中全是`APartitionActor`(`ALandscapeStreamingProxy`就是)。用它的最长Bound计算所处的GridLevel。
+    ```
+    OutGridLevel = FMath::Min(FMath::CeilToInt(FMath::Max<float>(FMath::Log2(MaxLength / CellSize), 0)), GridLevelCount - 1);
+    ```
+  * 用的是ActorSet的Bound中心位置(不考虑Z坐标)，计算它所处的Cell坐标。
+    ![CellCoordsCaculate](../assets/UE/CellCoordsCaculate.png)
+* 使用ActorSet的Bound
+  * 如果不满足上面的条件，或者Bound的XY面积大于Level0，则用这里的方法。
+  * 先找出能够容纳Bound.XY的最长长度的Level。
+  * 计算Bound在这一Level与几个Cell相交。
+    * 计算Bound.Min和Bound.Max分别所处的Cell坐标，然后两个Cell坐标XY分别相减。
+    ![IntersectingCellNum](../assets/UE/IntersectingCellNum.png)
+  * 如果只有一个Cell相交，那么就把当前ActorSet放在这一级Level的这个相交的Cell中。
+  * 与多个Cell相交则Level++，直到找到只和一个Cell相交的那一级Level。最差情况下会找到顶级Level，只有一个Cell，即WorldBound的大小，就会永久加载。
+
+所有ActorSet都会被分配给`FSquare2DGridHelper::FGridLevel::FGridCell`。然后就是创建`UWorldPartitionRuntimeCell`，在`UWorldPartitionRuntimeSpatialHash::CreateStreamingGrid`中实现。这里与前面的`UWorldPartitionRuntimeHashSet`的区别在于，`RuntimeCellData`的Calss为
+`UWorldPartitionRuntimeCellDataSpatialHash`，里面记录下了自己所属的Level等级，Position，GridName等信息。也是同样调用`UWorldPartitionRuntimeHash::PopulateRuntimeCell`把所有Actor添加到对应的`UWorldPartitionRuntimeLevelStreamingCell`中。
+
+对于HLODActor，在构建HLOD时，会生成对应的`ASpatialHashRuntimeGridInfo`，里面包含了`FSpatialHashRuntimeGrid`配置，这个配置是在HLODLayer上，勾选bIsSpatiallyLoaded时会显示额外的配置。这和`UWorldPartitionRuntimeHashSet`完全不同，它是直接与WorldParition一起配置的。而且HLODActor的GridName的机制也不同。
+
+Reference:
+* https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition-in-unreal-engine
+* https://zhuanlan.zhihu.com/p/502053365
+* source ：https://zhuanlan.zhihu.com/p/503260506

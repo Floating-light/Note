@@ -125,3 +125,7 @@ D3D12_BLEND_OP_SUBTRACT 从Src的值减去Dest的值
 D3D12_BLEND_OP_REV_SUBTRACT 从Dest的值减去Src的值
 ```
 `SrcBlendAlpha`,`DestBlendAlpha`,`BlendOpAlpha`也是一样的，不过仅针对如何混合最终的Alpha值。
+size_t AlignUpWithMask( size_t value, size_t mask )
+{
+    return (((size_t)value + mask) & ~mask);
+}
