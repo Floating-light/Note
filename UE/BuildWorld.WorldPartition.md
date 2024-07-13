@@ -380,4 +380,3 @@ CellName : PartitionName_CellName
 Reference:
 * https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition-in-unreal-engine
 * https://zhuanlan.zhihu.com/p/502053365
-* source ：https://zhuanlan.zhihu.com/p/503260506
