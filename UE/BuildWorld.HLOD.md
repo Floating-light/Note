@@ -78,11 +78,12 @@ BuildHLOD的大致流程：
     * UWorldPartitionHLODModifier::BeginHLODBuild(HLODBuildContext)
     * 在Builder构建完之后，对生成的HLODComponent调用UWorldPartitionHLODModifier::EndHLODBuild(Comps).
     * 这里可以对构建HLOD的Component和构建结果作自定义的修改。
+  * 调用`HLODBuilder->Build(HLODBuildContext)`执行真正的HLODBuild。
   * 构建的结果是一堆`UActorComponent`，通常可能是`UStaticMeshComponent`或`InstancedStaticMeshComponent`。
   * 然后把这些Component Attach到`AWorldPartitionHLOD`上。
   * 对于构建好HLODComponent，会强行设置一些东西：
-    * 关闭EverAffectNavigation
-    * 关闭碰撞，关闭CanCharacterStepUpOn，关闭GenerateOverlapEvents
+    * 关闭EverAffectNavigation。
+    * 关闭碰撞，关闭CanCharacterStepUpOn，关闭GenerateOverlapEvents。
 
 ## UWorldPartitionHLODModifier的用法
 引擎中有一个案例`UWorldPartitionHLODModifierMeshDestruction`。
@@ -91,8 +92,32 @@ BuildHLOD的大致流程：
 
 `UWorldPartitionHLODModifierMeshDestruction`里面实现了监听MergedMesh的生成，并将ActorId写入Mesh的VertexColor，通过材质的MaskOpacity控制合并后的Mesh中部分显示出来，达到移除部分Actor的效果。`EndHLODBuild()`时，会把`UWorldPartitionDestructibleHLODMeshComponent`添加进HLODComponents，里面实现了Runtime下对单个Actor造成伤害和DestroyActor的逻辑，本质就是控制对应的材质参数、`VisibilityTexture`，达到销毁单个Actor的效果。甚至还包括了网络同步。
 
-## HLOD Layer type
-不同的Type实现了不同的Mesh合并方式。
+# HLOD Layer Type
+`UHLODBuilder::Build`是真正构建HLODMesh的入口。
+![HLOD_BuilderBuild](../assets/UE/HLOD_BuilderBuild.png)
+
+`UPrimitiveComponent`中有个配置：
+```c++
+EHLODBatchingPolicy HLODBatchingPolicy;
+```
+这里要先处理这个配置：
+![HLOD_BatchPolicy](../assets/UE/HLOD_BatchPolicy.png)
+这个配置给了Component机会强制自己采用指定的方式生成HLOD，不论它所有的HLODLayer的配置如何。目前只要不是配置的None，就会强制用InstanceMesh的方式Batch，它们会在其它Component处理好之后，单独用`UHLODBuilder::BatchInstances()`合并。
+
+但是`UHLODBuilder`的`ShouldIgnoreBatchingPolicy()`实现可以控制自己要不要处理Component上的BatchingPolicy。默认是要处理的。目前只有`UHLODBuilderInstancing`忽略，因为它本身就是用的这种合并策略。
+
+`UActorComponent`上还有方法控制强行使用自己的自定义`UHLODBuilder`：
+![HLOD_CustomHLODBuilderClass](../assets/UE/HLOD_CustomHLODBuilderClass.png)
+
+`ULandscapeComponent`就实现了自己的`ULandscapeHLODBuilder`。
+
+`UHLODBuilder::Build()`中，会构建一个Map:
+```c++
+TMap<TSubclassOf<UHLODBuilder>, TArray<UActorComponent*>> HLODBuildersForComponents;
+```
+其中Key为nullptr的就是没有自定义UHLODBuilder的Component，那就用this，调用最终的Build方法。
+![HLOD_VirtualBuild](../assets/UE/HLOD_VirtualBuild.png)
+所有不同的`UHLODBuilder`就是实现这个方法。
 
 ## Instance
 `UHLODBuilderInstancing`将相同的Mesh合并成InstancedStaticMesh。默认使用的是`UHLODInstancedStaticMeshComponent`。可以在Edtior的Config中配置：
@@ -109,7 +134,93 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 把所有StaticMeshComponent合并成一个StaticMesh。主要功能实现在`MeshMergeUtilities`模块中。
 ![HLOD_MergeMesh](../assets/UE/HLOD_MergeMesh.png)
 
-`UPrimitiveComponent`上有一个`HLODBatchingPolicy`，可以指定使用最后一级LOD用于合并。
+在选择MergedMesh之后，会出现`MeshMergeSettings`，关于如何合并Mesh的设置。
 
-`FMeshMergeUtilities::MergeComponentsToStaticMesh`实现了合并的逻辑。
-* 
+`UPrimitiveComponent`上有一个`HLODBatchingPolicy`，可以指定使用最后一级LOD用于合并。首先处理这个逻辑，将所有待合并的Mesh分成两部分`StaticMeshComponentsToMerge`和`ImposterComponents`，前者使用`MeshMergeSettings`上的`LODSelectionType`决定用哪一级LOD，后者使用最后一级LOD，合并成`Imposter`。这里还需要`MeshMergeSettings`上开启`bIncludeImposters`，否则全部都会被当作`StaticMeshComponentsToMerge`。
+
+> "Imposter LODs"（仿真 LODs，或称为欺骗 LODs）通常是指使用纹理贴图来代替复杂的 3D 模型，以实现远距离视图的高效渲染。具体来说，Imposter LODs 是使用2D sprite或 billboard 技术来模拟远处的 3D 模型，以节省计算资源。
+
+* 如果`LODSelectionType`配置的`EMeshLODSelectionType::AllLODs`：
+  * 所有LOD的数据都会被记录下来
+* 如果`LODSelectionType`配置的其它三个：
+  * 合并的Mesh只会有一个LOD0
+  * EMeshLODSelectionType::CalculateLOD会按以下规则计算：
+    * 用一个ScreenSize下Mesh显示的LOD，UHLODBuilderMeshMerge::Build()中写死了这个值为`0.25`。
+    * FHierarchicalLODUtilities::GetLODLevelForScreenSize()
+  ![HLOD_DetermineLOD](../assets/UE/HLOD_DetermineLOD.png)
+  * 对每个Mesh都会调用RetrieveRawMeshData()，把确定要用的LOD的Mesh添加到`DataTracker`中。
+    * 每个Component的数据以`TMap<FMeshLODKey, FMeshDescription> RawMeshLODs;`存在`DataTracker`。
+    * FMeshLODKey由ComponentIndex，LODIndex，UStaticMesh组成。
+    * FMeshDescription里面包含经过处理的对应LOD的所有数据。
+  * 提取Section信息，材质，材质SlotName。
+  * 对于`UInstancedStaticMeshComponent`，有多少个Instance，顶点数据就会被复制多少份。
+  * 如果开启`bUseLandscapeCulling`，在这里处理。
+* 处理MergeSockets，物理数据，Sction，LOD，所有Mesh设置等，最后只会产生一个UStaticMesh。
+* Nanite设置是完全Copy`MeshMergeSettings`上的。
+
+创建一个对应的`UStaticMeshComponent`，这就是`UHLODBuilderMeshMerge`的输出。
+
+这里不会主动对Mesh进行任何简化，它仅仅是根据选择的LOD，把对应的LODMesh全部合并成一个Mesh。如果是NaniteMesh，就只有一个LOD，即Fallback，这个通常也会有几万个面。此外，材质也不会进行任何简化合并，所有Mesh都使用原来的材质，都是合并后Mesh的一个MaterialSlot。
+
+这种合并后的效果应该类似于InstanceStaticMesh，但这种合并中，相同的Mesh的数据会在最终Mesh中被Copy多份。相较于Instance，估计提升不大。
+
+## SimplifiedMesh
+这个和`MeshMerge`一样，都是把多个Mesh合并成一个。不同之处在于：
+* MeshMerge 是直接使用Mesh某个LOD作为合并Mesh来源，把它们直接合并成一个Mesh。
+* `SimplifiedMesh` 是采用算法计算出一个简化的Mesh，然后再合并成一个。 
+  * UE自己实现了一个`FProxyLODMeshReduction`
+  * 或者可以用号称业界标准的[simplygon](https://www.simplygon.com/)
+
+`UHLODBuilderMeshSimplify::Build`：
+
+* 计算在`LoadingRange`下，所有Component组成的Bound占屏幕的百分比，然后转成1K下的像素Size。设置到`FMeshProxySettings`中。
+* 然后进入真正的模型简化：`FMeshMergeUtilities::CreateProxyMesh`
+  * 确定每个`StaticMesh`使用哪一级LOD进行Mesh简化：
+    * 如果不开启`bCalculateCorrectLODModel`，全都用LOD0。
+    * 如果开启`bCalculateCorrectLODModel`，使用一个`ScreenSize`(这里写死了1)，计算出所有Mesh组成的SphereBound的DrawDistance。再用这个Distance计算出它对应的ScreenSize，再计算出这个ScreenSize对应的LODLevel，作为最终确定的LOD。（似乎这里应该也永远是LOD0？）
+    * 对NaniteMesh，LOD0就是FallbackMesh。
+  * 提取Mesh的原始数据，`UInstancedStaticMeshComponent`的各个Instance都会被展开。
+  * 用`IMeshReductionModule`模块的相关方法合并成简化Mesh。
+  * 材质也只会有一个，会生成一个极简的材质，根据`FMaterialProxySettings`的设置，生成对应的Texture，即可完成Shading。
+
+以下分别测试NaniteMesh和普通Mesh，在不同的Scale下，简化后的情况。最小可见距离为25600：
+
+![HLOD_TestSimplifiedMesh](../assets/UE/HLOD_TestSimplifiedMesh.png)
+
+| MeshType | SourceTriangles | SourceVertices | Scale1 SimplifiedMesh | Scale10 SimplifiedMEsh|
+|:----:|:----:|:----:|:----:|:----:|
+|NaniteMesh| 10874 |6323|<table><tr><td>T:18</td><td>V:19</td></tr></table>|<table><tr><td>T:370</td><td>V:256</td></tr></table>|
+|普通Mesh|2706|1792|<table><tr><td>T:22</td><td>V:26</td></tr></table>|<table><tr><td>T:1026</td><td>V:611</td></tr></table>|
+
+其中NaniteMesh在简化时用的时FallbackMesh，所以这里显示的也是它的FallBackMesh的数据。
+
+可以看到，即使简化后的Mesh面数与Mesh在屏幕上的大小占比有关，屏幕占比越大，简化后就需要的面数更多。
+
+此外，这种合并方式还会合并材质，合并后的StaticMesh中，只有一个材质，原来的不同Mesh会被重新分配UV，仅生成设置中指定的Texture，用于Shading。
+
+![HLOD_SimplifiedMesh_Material](../assets/UE/HLOD_SimplifiedMesh_Material.png)
+
+
+## MeshApproximate
+
+对一组StaticMesh的输入，构建近似Mesh，和材质。
+
+功能实现在`UHLODBuilderMeshApproximate::Build()`。这种`MeshApproximate`方法从结果上看，与`SimplifiedMesh`很相似。但是实际机制完全不同。
+
+它主要是依赖`IGeometryProcessing_ApproximateActors`接口Actors近似方法:
+
+![HLOD_Interface_ApproxActors](../assets/UE/HLOD_Interface_ApproxActors.png)
+
+其中`FInput`就是一组`Actor`或者`UActorComponent`，`FOptions`是近似过程中的一切参数配置，大部分是从`FMeshApproximationSettings`初始化而来。`FResults`是`Input`的所有内容的近似结果：
+
+![HLOD_ApproxActorsResult](../assets/UE/HLOD_ApproxActorsResult.png)
+
+通常就一个StaticMesh和一个材质，以及配置的需要生成的Texture。
+
+引擎给的实现是`FApproximateActorsImpl`。这里的过程有点复杂，用到了`MeshModelingToolset`模块中的`FMeshSceneAdapter`。
+
+它与`SimplifiedMesh`相比，这里会剔除掉看不见的Mesh，这可以减少许多不必要的三角面。例如，上一节最后的截图中，展示一些完全被包围起来的StaticMesh，在用`SimplifiedMesh`合并后，其内部的`StaticMesh`仍然存在，但是，HLOD只会在远处出现，我们是不可能看到HLOD的内部的。所以这些内部的Mesh是完全不必要的。而用`MeshApproximate`方法生成的HLOD结果中：
+
+![HLOD_ApproxResult](../assets/UE/HLOD_ApproxResult.png)
+
+内部的Mesh就完全不存在，所以这种合并的结果通常比`SimplifiedMesh`的结果还要简化。这对于大规模的室内场景的HLOD是巨大的提升。
