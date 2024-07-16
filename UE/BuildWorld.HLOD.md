@@ -128,6 +128,10 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 * 仅处理`UStaticMeshComponent`。
 * 利用`UHLODInstancedStaticMeshComponent`对应的`FISMComponentDescriptor`，将StaticMesh的大量属性生成一个Hash，只有Hash相同，即几乎所有`UStaticMeshComponent`的属性设置都相同的才能合成一个ISM。
   * 所以必须谨慎考虑`UStaticMeshComponent`的属性设置，虽然Mesh相同，但大量不同的Component属性设置会导致无法合并成一个ISM。
+* `UHLODInstancedStaticMeshComponent`使用了派生的`FHLODISMComponentDescriptor`，初始化时，强制`UInstancedStaticMeshComponent`使用最后一级LOD:
+
+![HLOD_ForceLod](../assets/UE/HLOD_ForceLod.png)
+
 * `UHLODBuilderInstancing`中还有一个配置`bDisallowNanite`，如果开启，且ISM的Mesh开启了Nanite，且LOD数量大于一，则会关闭这个ISM的Nanite。
 
 ## MeshMerge
