@@ -1,6 +1,5 @@
 # 1. HLOD相关配置
-Actor会BuildHLOD的条件
-
+Actor会BuildHLOD的条件：
 * Actor开启bIsSpatiallyLoaded
 * AActor::IsHLODRelevant() return true
   * 开启Include Actor in HLOD
@@ -9,13 +8,14 @@ Actor会BuildHLOD的条件
     * 开启Include Component in HLOD
 满足这些条件后，Actor必会生成HLOD，没有配置HLODLayer则会给它分配WorldSetting中默认的HLODLayer。
 
-不同的RuntimeHash对HLOD的配置处理不一样。
+不同的RuntimeHash对HLOD的配置处理不一样：
 * UWorldPartitionRuntimeHashSet
   * HLOD与Grids配置在一起
   * 每个Grid配置有单独的HLODLayers配置
   * 这里可以给需要SpatiallyLoaded的HLODLayer配置PartitionLayer，配置LoadingRange
     * 由此生成的HLODActor会被分配至名为`GridName:HLODLayerName`的Grid，
     * 也就是说这样的HLODLayer会单独有一个Grid，这可能造成Cell数量过多。
+    * 这个HLODLayer生成的Actor会按这里配置的CellSize和LoadingRange划分到Cell和动态加载。
   * 不需要SpatiallyLoad的HLODLayer生成的HLODActor会直接放进持久Cell。
   * Grid中的Actor，如果开启了自动HLOD，则它配置的HLODLayer必须出现在自己所在Grid的配置中。
   
@@ -39,16 +39,18 @@ BuildHLOD的大致流程：
   * 然后用整理好AsetSet进入UWorldPartitionRuntimeHash::SetupHLODActors()处理。
 
 对于`UWorldPartitionRuntimeHashSet`：
-* 与`GenerateStreaming`中同样的方法，先生成StreamingCell。
-* 用`FWorldPartitionHLODUtilities::CreateHLODActors`对每个Cell创建AWorldPartitionHLOD。
+* 与`GenerateStreaming`中同样的方法，先生成StreamingCell。这里是用当前World中所有的ActorSet生成的，MainGrid的配置。
+* 用`FWorldPartitionHLODUtilities::CreateHLODActors`对每个Cell创建AWorldPartitionHLOD。所以每一级HLODActor数量是由它基于的Actor的Partition配置决定的。
   * 对Cell中所有HLODRelevant的Actor，`UHLODLayer`相同的划分在一起。
   * 每一个HLODLayer都会创建一个对应的AWorldPartitionHLOD(如果存在用了这个Layer的Actor)。
   * 如果对应的AWorldPartitionHLOD存在，就用旧的，不存在就用new一个。
     * 生成的AWorldPartitionHLOD会和所在Cell有一样的DataLayer
     * AWorldPartitionHLOD的成员变量`UWorldPartitionHLODSourceActors`记录了它对应的所有SourceActor。
     * AWorldPartitionHLOD上的设置大部分都是从UHLODLayer上同步来的。
-  * 如果这个HLODLayer有ParentLayer，这个ParentLayer会作为HLODActor的HLODLayer，相当于下一级HLOD，然后进入下一级HLOD的生成。
-    * 用所有新生成的AWorldPartitionHLOD构成一个`FHLODStreamingGenerationContext`，替代原来的Context，再走一遍和之前同样的AWorldPartitionHLOD生成流程。
+    * 这里还会设置这个HLODActor对应的原来的Mesh们所在的CellGuid，这是HLODActor能够正确动态切换的关键。
+    * 如果这个HLODLayer有ParentLayer，这个ParentLayer会作为HLODActor的HLODLayer，相当于下一级HLOD。
+* 生成的所有HLODActor中，如果有任何Actor是有HLODLayer的，就进入下一级HLOD的生成流程。
+  * 用所有新生成的AWorldPartitionHLOD构成一个`FHLODStreamingGenerationContext`，替代原来的Context，再走一遍和之前同样的AWorldPartitionHLOD生成流程。
 
 对于`UWorldPartitionRuntimeSpatialHash`:
 * 遍历所有Actor，拿到所有UHLODLayer和ParentLayer。

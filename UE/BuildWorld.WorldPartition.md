@@ -318,6 +318,8 @@ static inline FCellCoord GetCellCoords(const FVector& InPos, int32 InCellSize, i
 
 ![StreamingData](../assets/UE/StreamingData.png)
 
+所有的`UWorldPartitionRuntimeCell`都保存在`UWorldPartitionRuntimeHashSet`。
+
 此外，生成的CellName包含了一些有用的调试信息：
 
 Cell ID : WorldName_CellName_DataLayerID_ContextBundleID
