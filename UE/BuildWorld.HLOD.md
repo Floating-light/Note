@@ -47,7 +47,7 @@ BuildHLOD的大致流程：
     * 生成的AWorldPartitionHLOD会和所在Cell有一样的DataLayer
     * AWorldPartitionHLOD的成员变量`UWorldPartitionHLODSourceActors`记录了它对应的所有SourceActor。
     * AWorldPartitionHLOD上的设置大部分都是从UHLODLayer上同步来的。
-    * 这里还会设置这个HLODActor对应的原来的Mesh们所在的CellGuid，这是HLODActor能够正确动态切换的关键。
+    * 这里还会设置这个HLODActor的属性SourceCellGuid，为原来的Mesh们所在的CellGuid，这是HLODActor能够正确动态切换的关键。
     * 如果这个HLODLayer有ParentLayer，这个ParentLayer会作为HLODActor的HLODLayer，相当于下一级HLOD。
 * 生成的所有HLODActor中，如果有任何Actor是有HLODLayer的，就进入下一级HLOD的生成流程。
   * 用所有新生成的AWorldPartitionHLOD构成一个`FHLODStreamingGenerationContext`，替代原来的Context，再走一遍和之前同样的AWorldPartitionHLOD生成流程。
@@ -60,6 +60,11 @@ BuildHLOD的大致流程：
   * 先创建HLOD0的`AWorldPartitionHLOD`。
   * 然后对新的`AWorldPartitionHLOD`创建下一级HLOD。
 结果与`UWorldPartitionRuntimeHashSet`保持一致，都是每个Cell的每个HLODLayer都创建了一个对应的`AWorldPartitionHLOD`。
+
+在有多级HLOD的情况下，如下图所示：
+![SS_HLODActorGrid](../assets/UE/SS_HLODActorGrid.jpg)
+
+每个HLODActor的SourceCellGuid属性就是它对应表示的Mesh所在Cell的Guid，这样当对应Cell显示或隐藏，HLODActor就能隐藏或显示。
 
 然后进入下一步`UWorldPartitionHLODsBuilder::BuildHLODActors()`:
 * 获取所有的`AWorldPartitionHLOD`，排序，Child HLOD必须在Parent HLOD之前Build。

@@ -110,6 +110,85 @@ bIntersection = d2 < RadiusSquared
 
 要想HLODActor能够被切换出来，首先它们得被加载出来。对于没有开启bIsPatiallyLoaded的HLODLayer，它会被分配到一个持久Parition`URuntimePartitionPersistent`中，最终只会生成一个Cell，所有没有开启bIsPatiallyLoaded的Actor都会在这个Cell中，游戏一开始就持久加载。通常会给植被，悬崖，大型雕像这种大的东西生成一级极简的HLOD，永久加载。
 
-对于开启了bIsPatiallyLoaded的HLODLayer，它对应的HLODActor就会是空间加载的，且会被分配到对应HLODSetups中配置的PartitionLayer中，根据这个配置生成专属于HLODActor的Cell。这些HLODActor的Cell，会和正经的RuntimePartition的Cell一样对待，根据Source动态加载卸载。
+对于开启了bIsPatiallyLoaded的HLODLayer，它对应的HLODActor就会是空间加载的，这些Actor被分配到对应HLODSetups中配置的PartitionLayer中，根据这个配置生成专属于HLODActor的Cell。这些HLODActor的Cell，会和正经的RuntimePartition的Cell一样对待，根据Source动态加载卸载。
 
-一旦HLODActor所在的Cell被加载出来时，HLODActor是显示还是隐藏，就完全由HLODActor和它基于的Cell的加载或卸载状态决定了。
+一旦HLODActor所在的Cell被加载出来时，HLODActor是显示还是隐藏，就完全由HLODActor和它基于的Cell的显示或隐藏状态决定了。HLODActor有一个属性`SourceCellGuid`，记录了它是从这个Cell中的Mesh生成而来的，当对应的Cell被显示或隐藏时，HLODActor就会隐藏或显示。
+
+![SS_HLODActorGrid](../assets/UE/SS_HLODActorGrid.jpg)
+
+`UWorldPartitionHLODRuntimeSubsystem`负责实现HLOD的切换功能。其中保存了所有CellGuid和它对应的HLODActor信息：
+
+![SS_PartitionHLODData](../assets/UE/SS_PartitionHLODData.png)
+
+`WorldPartitionsHLODRuntimeData`的Key是`UWorldPartition`，通常只有一个(没有子世界分区)，基础的Cell和生成的HLODCell都属于一个WorldPartition。然后通过SourceCellGuid和对应的`AWorldPartitionHLOD`将它们关联起来。
+在`AWorldPartitionHLOD`的BeginPlay中，会把自己注册到`UWorldPartitionHLODRuntimeSubsystem`中:
+
+![SS_HLODActorRegister](../assets/UE/SS_HLODActorRegister.png)
+
+注册时，根据Cell当前状态初始化HLODActor的显示隐藏状态：
+
+![SS_HLODActorRegistered](../assets/UE/SS_HLODActorRegistered.png)
+
+其中，`GetCellData()`是用`AWorldPartitionHLOD::GetSourceCellGuid()`返回的CellGuid得到对应的`CellData`。从这里可以看出，HLODActor如果是空间加载的，它们的加载范围应该比它的上一级更大，如果HLODActor没有加载出来，是不会起作用的。
+
+当Cell对应的LevelStreaming显示或隐藏时，会直接通知到`UWorldPartitionHLODRuntimeSubsystem`，进行HLODActor的显示隐藏更新：
+
+![SS_CellShowOrHidden](../assets/UE/SS_CellShowOrHidden.jpg)
+
+只需要简单地找到对应的CellData，并对它已注册的`LoadedHLODs`进行操作即可：
+![SS_OnCellHidden](../assets/UE/SS_OnCellHidden.png)
+
+`UWorldPartitionHLODRuntimeSubsystem::WorldPartitionHLODEnabled`是一个控制台变量，`wp.Runtime.HLOD`直接控制开关HLOD。
+
+### HLODActor Warmup
+
+`UHLODBuilder`决定它生成的HLODActor需不需要Warmup。
+
+![SS_HLODBuilderRequiresWarmup](../assets/UE/SS_HLODBuilderRequiresWarmup.png)
+
+就像这个函数的注释所说，主要是为了解决在切换到HLOD时，VT和Nanite不能马上加载到想要的精度，从而开始几帧会显示极低分辨率的Texture或Mesh。所以要先办法，先别显示，先加载Mesh和Texture对应的渲染资源。
+
+`UWorldPartitionHLODRuntimeSubsystem`中实现了一种`Warmup`逻辑。HLODCell在尝试显示Cell时，通过`UWorldPartitionHLODRuntimeSubsystem::CanMakeVisible(Cell)`通知HLOD系统进行预热，这里直接取出Cell中的所有`AWorldPartitionHLOD`分别调用`PrepareToWarmup()`，里面对每个需要Warmup的HLODActor维护了一个`FWorldPartitionHLODWarmupState`，用于记录对应Actor预热请求次数，衡量要预热多久，通常如果一次请求结果表示Cell还不能显示，下一帧则还会请求，所以这里的请求次数可以理解为帧数，变量`wp.Runtime.HLOD.WarmupNumFrames`定义每个HLODActor要预热多少帧，默认是5。当预热请求超过5次就允许显示。
+
+所有需要预热的Actor记录在`HLODActorsToWarmup`，`UWorldPartitionHLODRuntimeSubsystem`中注册了一个`FHLODResourcesResidencySceneViewExtension`，这会导致在每帧开始渲染时调用`UWorldPartitionHLODRuntimeSubsystem::OnBeginRenderViews()`，在这里处理预热的Actor的渲染资源预加载。这里会遍历这些Actor的所有`UStaticMeshComponent`，向渲染线程发送命令，对材质使用的VT和Nanite资源进行预加载。
+
+有一堆控制台变量控制预热的行为：
+* wp.Runtime.HLOD.WarmupEnabled 总开关，默认开启。
+* wp.Runtime.HLOD.WarmupNumFrames 每个资源要预热多少帧，默认5。
+* wp.Runtime.HLOD.WarmupVT 预热VT的单独开关。默认开启。
+* wp.Runtime.HLOD.WarmupNanite 预热Nanite资源的单独开关，默认开启。
+
+## DataLayer切换
+
+[文档](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition---data-layers-in-unreal-engine)
+
+DataLayer有两种，普通的DataLayer和ExternalDataLayer，对应由`UDataLayerManager`和`UExternalDataLayerManager`进行管理，这两者都由`UWorldPartition`创建和管理。
+
+在编辑器中的DataLayers面板中创建的DataLayer由`UDataLayerManager`管理，在`UWorldPartition::Initialize()`创建`UDataLayerManager`，并调用`UDataLayerManager::Initialize()`。`UDataLayerManager`并不直接管理DataLayer数据，而是在初始化的时候找到自己所属World中的`AWorldDataLayers`，并初始化`AWorldDataLayers::OnDataLayerManagerInitialized()`。`UDataLayerManager`对DataLayer的所有操作几乎都是转发到这个Actor上，这样做应该主要是为了同步Datalayer的激活状态。
+
+通常情况下这个Actor是已经存在于World中，它在编辑器下就开始起作用，当添加一个DataLayer到`DataLayers`面板中时，就会通过调用`AWorldDataLayers::CreateDataLayer()`创建对应的`UDataLayerInstance`，这是DataLayer在Runtime下能够正常工作的基础。如果一个DataLayer没有配置到DataLayers的面板中，Runtime下对应Layer将无法加载，配置了这一Layer的Actor永远不会加载。
+
+游戏中用`UWorldPartitionBlueprintLibrary::GetDataLayerManager()`获取到DataLayerManager，调用`SetDataLayerRuntimeState()`改变对应Layer的状态。Layer的卸载与激活需要先考虑Cell的Streaming状态，只有当Cell是激活状态并且Layer也是激活状态时，对应的Actor才能加载出来。因为在 UWorldPartitionStreamingPolicy::UpdateStreamingState()的每帧执行中，都会重新计算所有Cell的状态，通过距离流送的Cell再结合DataLayer的状态最终确定Cell是否能加载。这里是通过`UDataLayerManager::IsAnyDataLayerInEffectiveRuntimeState()`判断对应Layer的状态，最终是从`AWorldDataLayers`获取所有已激活或已加载的DataLayerNames进行判断，不论流送状态和DataLayer状态谁先谁后，都能正确转换状态。而`AWorldDataLayers`中负责正确处理DataLayer的状态转换，网络同步等操作。
+
+在有子世界分区的情况下，有多个UWorldPartition存在，也就有多个`UDataLayerManager`。它们是互相独立互不干扰的。调用`UWorldPartitionBlueprintLibrary::GetDataLayerManager(Context)`时传入的Context对象决定了最终获得的是哪一个分区的DatalayerManager。
+
+![SS_GetWorldPartition](../assets/UE/SS_GetWorldPartition.png)
+
+这里仅当传入的Context对象是AActor、ULevel、UWorld才能的得到这个对象属于哪一个World，才能确定UWorldPartition，子世界分区也存在一个UWorld，但它的功能十分有限。本质上只有知道Context属于哪一个Level才能得到它的`UWorldPartition`，通过Outer链找到自己的World：
+
+![SS_GetOuterWorldPartition](../assets/UE/SS_GetOuterWorldPartition.png)
+
+子世界分区的那些对象(Actor, WorldSetting, UWorldPartition)的Outer链最终还是到它们自己的UWorld。我们经常用的UObject上的GetWorld()方法，要想得到当前正在Play的主UWorld，需要不同的类型自己妥善处理，对于Actor：
+
+![SS_RealActorGetWorld](../assets/UE/SS_RealActorGetWorld.png)
+
+`OwningWorld`就一定是当前在Play的主UWorld。ULevel也是这样实现的：
+
+![SS_Actor_GetWorld](../assets/UE/SS_Actor_GetWorld.png)
+
+
+* wp.DumpDatalayers：将数据层列表及其运行时状态转储到日志中。
+* wp.Runtime.DebugFilerByDatalayer：用于筛选在运行时哈希2D调试显示中可见的数据层。
+* wp.Runtime.SetDataLayerRuntimeState [state] [layer]：强制将数据层设为特定运行时状态。
+* wp.Runtime.ToggleDataLayerActivation [layer]：激活/停用特定运行时数据层。
+* wp.Runtime.ToggleDrawDataLayers：在主视图中显示数据层列表及其状态。
