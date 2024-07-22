@@ -1,3 +1,5 @@
+原文：https://github.com/Floating-light/Note/blob/main/UE/BuildWorld.RuntimeStreaming.md
+
 前面提到，Cook时，所有Actor都会被分配到合适的`StreamingCell`中，被保存在对应Level的UWorldPartition中。Runtime下需要通过`UWorldPartition`加载卸载这些`StreamingCell`。由于`ALevelInstance`可以配置为`Standalone`，使其代表的Level作为一个子世界分区独立考虑其`UWorldPartition`，所以还必须同时考虑多个`UWorldPartition`存在的情况。`UWorldPartitionSubsystem`是一个`WorldSubsystem`，用于管理多个`UWorldPartition`的流送。
 
 # WorldParition初始化
@@ -81,6 +83,7 @@ bIntersection = d2 < RadiusSquared
 最终在`UWorld::BlockTillLevelStreamingCompleted()`中处理。里面会再执行一遍`UWorldPartitionSubsystem::UpdateStreamingStateInternal`，由于之前把性能转台设为了`Critical`，这一次会跳过所有不能阻塞加载的Cell(通常配置在对应的PartitionGrid上)，以最大程度上减少这次阻塞加载需要的时间。
 
 ### 执行加载Cell、处理优先级
+
 回到`UWorldPartitionSubsystem::UpdateStreamingStateInternal()`中，从所有`WorldParition`的`StreamingPolicy`那儿获取刚刚计算好的`ToActivateCells`和`ToLoadCells`。首先分别给这两类Cell按优先级排序，确定谁先加载。
 
 ![SS_CellSortCompare](../assets/UE/SS_CellSortCompare.png)
@@ -186,9 +189,20 @@ DataLayer有两种，普通的DataLayer和ExternalDataLayer，对应由`UDataLay
 
 ![SS_Actor_GetWorld](../assets/UE/SS_Actor_GetWorld.png)
 
+在`AWorldDataLayers`上有个开关`bUseExternalPackageDataLayerInstances`，可以使`DataLayerInstances`保存在单个文件中，而不是`AWorldDataLayers`的文件中，这减少了修改`DataLayerInstances`时发生冲突的可能性。
+
+Editor类型的DataLayer在Runtime下不会存在，对Cell划分和DataLayerManager没有任何影响。Cell划分的处理在`FDataLayerUtils::ResolveRuntimeDataLayerInstanceNames()`。
+
+在编辑器中的`DataLayers`面板，可以给Layer创建层级关系。如果调用`SetDataLayerRuntimeState()`时，不开启Recursive，子Layer只会在所有父级Layer是可见的并且自己本身是可见的情况下才是可见的。开启`Recursive`，后，所有子Layer都会设置到一样的状态。
+
+一些调试命令：
 
 * wp.DumpDatalayers：将数据层列表及其运行时状态转储到日志中。
 * wp.Runtime.DebugFilerByDatalayer：用于筛选在运行时哈希2D调试显示中可见的数据层。
 * wp.Runtime.SetDataLayerRuntimeState [state] [layer]：强制将数据层设为特定运行时状态。
 * wp.Runtime.ToggleDataLayerActivation [layer]：激活/停用特定运行时数据层。
 * wp.Runtime.ToggleDrawDataLayers：在主视图中显示数据层列表及其状态。
+
+# Reference
+
+* https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition-in-unreal-engine

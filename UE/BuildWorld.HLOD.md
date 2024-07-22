@@ -1,3 +1,6 @@
+
+原文：https://github.com/Floating-light/Note/blob/main/UE/BuildWorld.HLOD.md
+
 # 1. HLOD相关配置
 Actor会BuildHLOD的条件：
 * Actor开启bIsSpatiallyLoaded
@@ -25,7 +28,7 @@ Actor会BuildHLOD的条件：
   * Build HLOD时，会生成这些HLODActor的SpatialHashGrid配置，直接是一个`ASpatialHashRuntimeGridInfo`。
   * 在`UWorldPartitionRuntimeSpatialHash::GenerateStreaming`中，会先搜集所有`ASpatialHashRuntimeGridInfo`的Grid配置，把他们与WorldSetting上的GridSetting一起处理。
 
-# BuildHLOD
+# 2. BuildHLOD
 通常通过命令行构建，主要功能入口在:
 ```
 UWorldPartitionHLODsBuilder::RunInternal()
@@ -92,14 +95,14 @@ BuildHLOD的大致流程：
     * 关闭EverAffectNavigation。
     * 关闭碰撞，关闭CanCharacterStepUpOn，关闭GenerateOverlapEvents。
 
-## UWorldPartitionHLODModifier的用法
+## 2.1 UWorldPartitionHLODModifier的用法
 引擎中有一个案例`UWorldPartitionHLODModifierMeshDestruction`。
 
 当采用MergedMesh这种把多个Mesh合成一个的HLODLayerType时，将无法移除单个Mesh。Instance的合并方法是合并成`UHierarchicalInstancedStaticMeshComponent`，是可以移除单个的。
 
 `UWorldPartitionHLODModifierMeshDestruction`里面实现了监听MergedMesh的生成，并将ActorId写入Mesh的VertexColor，通过材质的MaskOpacity控制合并后的Mesh中部分显示出来，达到移除部分Actor的效果。`EndHLODBuild()`时，会把`UWorldPartitionDestructibleHLODMeshComponent`添加进HLODComponents，里面实现了Runtime下对单个Actor造成伤害和DestroyActor的逻辑，本质就是控制对应的材质参数、`VisibilityTexture`，达到销毁单个Actor的效果。甚至还包括了网络同步。
 
-# HLOD Layer Type
+# 3. HLOD Layer Type
 `UHLODBuilder::Build`是真正构建HLODMesh的入口。
 ![HLOD_BuilderBuild](../assets/UE/HLOD_BuilderBuild.png)
 
@@ -126,7 +129,7 @@ TMap<TSubclassOf<UHLODBuilder>, TArray<UActorComponent*>> HLODBuildersForCompone
 ![HLOD_VirtualBuild](../assets/UE/HLOD_VirtualBuild.png)
 所有不同的`UHLODBuilder`就是实现这个方法。
 
-## Instance
+## 3.1 Instance
 `UHLODBuilderInstancing`将相同的Mesh合并成InstancedStaticMesh。默认使用的是`UHLODInstancedStaticMeshComponent`。可以在Edtior的Config中配置：
 ```
 GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStaticMeshComponentClass"), ConfigValue, GEditorIni);
@@ -141,7 +144,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 * `UHLODBuilderInstancing`中还有一个配置`bDisallowNanite`，如果开启，且ISM的Mesh开启了Nanite，且LOD数量大于一，则会关闭这个ISM的Nanite。
 
-## MeshMerge
+## 3.2 MeshMerge
 把所有StaticMeshComponent合并成一个StaticMesh。主要功能实现在`MeshMergeUtilities`模块中。
 ![HLOD_MergeMesh](../assets/UE/HLOD_MergeMesh.png)
 
@@ -175,7 +178,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 这种合并后的效果应该类似于InstanceStaticMesh，但这种合并中，相同的Mesh的数据会在最终Mesh中被Copy多份。相较于Instance，估计提升不大。
 
-## SimplifiedMesh
+## 3.3 SimplifiedMesh
 这个和`MeshMerge`一样，都是把多个Mesh合并成一个。不同之处在于：
 * MeshMerge 是直接使用Mesh某个LOD作为合并Mesh来源，把它们直接合并成一个Mesh。
 * `SimplifiedMesh` 是采用算法计算出一个简化的Mesh，然后再合并成一个。 
@@ -212,7 +215,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 ![HLOD_SimplifiedMesh_Material](../assets/UE/HLOD_SimplifiedMesh_Material.png)
 
 
-## MeshApproximate
+## 3.4 MeshApproximate
 
 对一组StaticMesh的输入，构建近似Mesh，和材质。
 
@@ -235,3 +238,22 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 ![HLOD_ApproxResult](../assets/UE/HLOD_ApproxResult.png)
 
 内部的Mesh就完全不存在，所以这种合并的结果通常比`SimplifiedMesh`的结果还要简化。这对于大规模的室内场景的HLOD是巨大的提升。
+
+这四种生成方式各有各的好处，`Instance`和`MeshMerge`得到的效果较好，因为用了最后一级LOD生成，且合成InstacedMesh或就是一个Mesh，渲染性能也会好一点。`SimplifiedMesh`和`MeshApproximate`会简化Mesh并合成一个，渲染性能会非常好，但是实际效果较差。可以参考《Fortnite》的做法：
+
+《Fortnite》第五章
+- 建筑的HLOD（2层）
+  - HLOD0特殊合并网格体，支持破坏，单元大小为256m，加载范围为512m，空间加载。
+  - HLOD1简化网格体，单元大小为512m，加载范围为2048m，空间加载。
+- 树木的HLOD（1层，非空间加载）
+  - 树木替代物的实例化层，始终加载。
+- 持久世界中的HLOD（非空间加载）
+  - 悬崖、特殊合并网格体箱子和大型雕像
+- 在从巴士降落期间，《Fortnite》采用了不同的方式来处理流送，目的是防止在接触地面前流送太多内容。
+- 每个平台的加载范围可能有所不同。HLOD内容在所有平台上共享，但会根据加载变化在不同的范围内显示，以实现优化目的。
+
+# Reference
+
+* https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition---hierarchical-level-of-detail-in-unreal-engine
+* https://mp.weixin.qq.com/s/sbsDIN6dUtq5CGhqRBR5oQ
+* 

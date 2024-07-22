@@ -128,7 +128,7 @@ class FContainerCollectionInstanceDescriptor:
 * 如果WorldPartition没有开启Streaming：
   * 强制关掉Actor的SpatiallyLoaded：FStreamingGenerationActorDescView::SetForcedNonSpatiallyLoaded()。
   * 强行把RuntimeGrid设为None： FStreamingGenerationActorDescView::SetForcedNoRuntimeGrid()。
-* DataLayer处理，兼容旧的配置
+* DataLayer处理，兼容旧的配置，配了EditorDataLayer的Actor这里会忽略掉这种Layer。
 * HLODLayer，如果没有配置，则使用WorldPartition上配置的默认HLOD，无论如何，所有Actor都会有HLOD配置。
 * 处理有父Actor的情况，更新ParentVew或者ParentActor的Transform(如果ParentActor是EditorOnly的)。
 
