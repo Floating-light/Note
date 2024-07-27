@@ -1,8 +1,10 @@
 原文：https://github.com/Floating-light/Note/blob/main/UE/BuildWorld.RuntimeStreaming.md
 
-前面提到，Cook时，所有Actor都会被分配到合适的`StreamingCell`中，被保存在对应Level的UWorldPartition中。Runtime下需要通过`UWorldPartition`加载卸载这些`StreamingCell`。由于`ALevelInstance`可以配置为`Standalone`，使其代表的Level作为一个子世界分区独立考虑其`UWorldPartition`，所以还必须同时考虑多个`UWorldPartition`存在的情况。`UWorldPartitionSubsystem`是一个`WorldSubsystem`，用于管理多个`UWorldPartition`的流送。
+前面提到，Cook时，所有Actor都会被分配到合适的`StreamingCell`中，被保存在对应Level的UWorldPartition中。Runtime下需要通过`UWorldPartition`加载卸载这些`StreamingCell`。由于`ALevelInstance`可以配置为`Standalone`，使其代表的Level作为一个子世界分区独立考虑其`UWorldPartition`，所以还必须同时考虑多个`UWorldPartition`存在的情况。`UWorldPartitionSubsystem`是一个`WorldSubsystem`，用于管理多个`UWorldPartition`的流送。此外，HLOD的切换以及DataLayer的切换也是在这一过程中处理的。
 
-# WorldParition初始化
+本文主要介绍Game运行时，WorldPartition系统是如何初始化、更新流送状态的，以及HLOD，DataLayer相关系统是如何更新的。
+
+# Runtime下WorldParition初始化
 
 初始化时，需要把`UWorldPartition`注册到`UWorldPartitionSubsystem`中，这里`PersistentLevel`与`LevelInstance`的处理稍有不同:
 
@@ -80,7 +82,7 @@ bIntersection = d2 < RadiusSquared
 
 ![SS_ProccessBlockLoading](../assets/UE/SS_ProccessBlockLoading.png)
 
-最终在`UWorld::BlockTillLevelStreamingCompleted()`中处理。里面会再执行一遍`UWorldPartitionSubsystem::UpdateStreamingStateInternal`，由于之前把性能转台设为了`Critical`，这一次会跳过所有不能阻塞加载的Cell(通常配置在对应的PartitionGrid上)，以最大程度上减少这次阻塞加载需要的时间。
+最终在`UWorld::BlockTillLevelStreamingCompleted()`中处理。里面会再执行一遍`UWorldPartitionSubsystem::UpdateStreamingStateInternal`，由于之前把性能状态设为了`Critical`，这一次会跳过所有不能阻塞加载的Cell(通常配置在对应的PartitionGrid上)，以最大程度上减少这次阻塞加载需要的时间。
 
 ### 执行加载Cell、处理优先级
 
@@ -98,6 +100,7 @@ bIntersection = d2 < RadiusSquared
   * 这两个值相乘得到CachedMinSpatialSortingPriority。
 
 排序完成后，高优先级的Cell被排在前面。然后用`GetMaxCellsToLoad()`获取当前还可以加载多少个Cell：
+
 * 如果是Server，则没有限制(直接MAX_int32)。
 * 如果处于`InWorld->GetIsInBlockTillLevelStreamingCompleted()`中，也无限制。表明当前处理阻塞加载的更新中。
 * GMaxLoadingStreamingCells 配置了最大可同时加载的Level数量，默认是4。

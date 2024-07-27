@@ -1,47 +1,55 @@
 
 原文：https://github.com/Floating-light/Note/blob/main/UE/BuildWorld.HLOD.md
 
+前文介绍了WorldPartition中生成StreamingCell的相关流程。
+
+本文介绍WorldParition中HLOD的配置及相关生成流程。
+
 # 1. HLOD相关配置
 Actor会BuildHLOD的条件：
+
 * Actor开启bIsSpatiallyLoaded
 * AActor::IsHLODRelevant() return true
   * 开启Include Actor in HLOD
   * 至少一个Component的IsHLODRelevant() return true:
     * Mobility != EComponentMobility::Movable
     * 开启Include Component in HLOD
+
 满足这些条件后，Actor必会生成HLOD，没有配置HLODLayer则会给它分配WorldSetting中默认的HLODLayer。
 
-不同的RuntimeHash对HLOD的配置处理不一样：
-* UWorldPartitionRuntimeHashSet
-  * HLOD与Grids配置在一起
-  * 每个Grid配置有单独的HLODLayers配置
-  * 这里可以给需要SpatiallyLoaded的HLODLayer配置PartitionLayer，配置LoadingRange
-    * 由此生成的HLODActor会被分配至名为`GridName:HLODLayerName`的Grid，
-    * 也就是说这样的HLODLayer会单独有一个Grid，这可能造成Cell数量过多。
-    * 这个HLODLayer生成的Actor会按这里配置的CellSize和LoadingRange划分到Cell和动态加载。
-  * 不需要SpatiallyLoad的HLODLayer生成的HLODActor会直接放进持久Cell。
-  * Grid中的Actor，如果开启了自动HLOD，则它配置的HLODLayer必须出现在自己所在Grid的配置中。
-  
-* UWorldPartitionRuntimeSpatialHash
-  * WorldSetting上的Grid配置不处理任何HLOD配置
-  * 在HLODLayer上有开启SpatiallyLoaded的配置，开启后可以配置对应的CellSize和LoadingRange。
-  * Build HLOD时，会生成这些HLODActor的SpatialHashGrid配置，直接是一个`ASpatialHashRuntimeGridInfo`。
-  * 在`UWorldPartitionRuntimeSpatialHash::GenerateStreaming`中，会先搜集所有`ASpatialHashRuntimeGridInfo`的Grid配置，把他们与WorldSetting上的GridSetting一起处理。
+不同的RuntimeHash对HLOD的配置处理不一样，对于UWorldPartitionRuntimeHashSet：
+
+* HLOD与Grids配置在一起
+* 每个Grid配置有单独的HLODLayers配置
+* 这里可以给需要SpatiallyLoaded的HLODLayer配置PartitionLayer，配置LoadingRange
+  * 由此生成的HLODActor会被分配至名为`GridName:HLODLayerName`的Grid，
+  * 也就是说这样的HLODLayer会单独有一个Grid，这可能造成Cell数量过多。
+  * 这个HLODLayer生成的Actor会按这里配置的CellSize和LoadingRange划分到Cell和动态加载。
+* 不需要SpatiallyLoad的HLODLayer生成的HLODActor会直接放进持久Cell。
+* Grid中的Actor，如果开启了自动HLOD，则它配置的HLODLayer必须出现在自己所在Grid的配置中。
+
+对于UWorldPartitionRuntimeSpatialHash：
+
+* WorldSetting上的Grid配置不处理任何HLOD配置
+* 在HLODLayer上有开启SpatiallyLoaded的配置，开启后可以配置对应的CellSize和LoadingRange。
+* Build HLOD时，会生成这些HLODActor的SpatialHashGrid配置，直接是一个`ASpatialHashRuntimeGridInfo`。
+* 在`UWorldPartitionRuntimeSpatialHash::GenerateStreaming`中，会先搜集所有`ASpatialHashRuntimeGridInfo`的Grid配置，把他们与WorldSetting上的GridSetting一起处理。
 
 # 2. BuildHLOD
 通常通过命令行构建，主要功能入口在:
-```
+```c++
 UWorldPartitionHLODsBuilder::RunInternal()
 ```
-
 BuildHLOD的大致流程：
+
 * UWorldPartitionHLODsBuilder::SetupHLODActors()
   * UWorldPartition::SetupHLODActors()
   * 前面有着和BuildStreamingCell时一样的流程
     * 利用`FWorldPartitionStreamingGenerator`将所有Actor划分好Cluster。构成ActorSet。
-  * 然后用整理好AsetSet进入UWorldPartitionRuntimeHash::SetupHLODActors()处理。
+  * 然后用整理好AsetSet进入`UWorldPartitionRuntimeHash::SetupHLODActors()`处理。
 
-对于`UWorldPartitionRuntimeHashSet`：
+对于`UWorldPartitionRuntimeHashSet::SetupHLODActors()`：
+
 * 与`GenerateStreaming`中同样的方法，先生成StreamingCell。这里是用当前World中所有的ActorSet生成的，MainGrid的配置。
 * 用`FWorldPartitionHLODUtilities::CreateHLODActors`对每个Cell创建AWorldPartitionHLOD。所以每一级HLODActor数量是由它基于的Actor的Partition配置决定的。
   * 对Cell中所有HLODRelevant的Actor，`UHLODLayer`相同的划分在一起。
@@ -55,21 +63,25 @@ BuildHLOD的大致流程：
 * 生成的所有HLODActor中，如果有任何Actor是有HLODLayer的，就进入下一级HLOD的生成流程。
   * 用所有新生成的AWorldPartitionHLOD构成一个`FHLODStreamingGenerationContext`，替代原来的Context，再走一遍和之前同样的AWorldPartitionHLOD生成流程。
 
-对于`UWorldPartitionRuntimeSpatialHash`:
+对于`UWorldPartitionRuntimeSpatialHash::SetupHLODActors()`:
+
 * 遍历所有Actor，拿到所有UHLODLayer和ParentLayer。
 * 对开启了bIsSpatiallyLoaded的HLODLayer生成对应的`FSpatialHashRuntimeGrid`，CellSize和LoadingRange等参数从对应HLODLayer的配置上获得。
 * 和上面一样，先把所有Actor划分到对应的Grid。
 * 然后对每个Cell创建对应的`AWorldPartitionHLOD`。
   * 先创建HLOD0的`AWorldPartitionHLOD`。
   * 然后对新的`AWorldPartitionHLOD`创建下一级HLOD。
+
 结果与`UWorldPartitionRuntimeHashSet`保持一致，都是每个Cell的每个HLODLayer都创建了一个对应的`AWorldPartitionHLOD`。
 
 在有多级HLOD的情况下，如下图所示：
+
 ![SS_HLODActorGrid](../assets/UE/SS_HLODActorGrid.jpg)
 
 每个HLODActor的SourceCellGuid属性就是它对应表示的Mesh所在Cell的Guid，这样当对应Cell显示或隐藏，HLODActor就能隐藏或显示。
 
 然后进入下一步`UWorldPartitionHLODsBuilder::BuildHLODActors()`:
+
 * 获取所有的`AWorldPartitionHLOD`，排序，Child HLOD必须在Parent HLOD之前Build。
 * AWorldPartitionHLOD::BuildHLOD()
 * FWorldPartitionHLODUtilities::BuildHLOD(AWorldPartitionHLOD* InHLODActor)
@@ -104,6 +116,7 @@ BuildHLOD的大致流程：
 
 # 3. HLOD Layer Type
 `UHLODBuilder::Build`是真正构建HLODMesh的入口。
+
 ![HLOD_BuilderBuild](../assets/UE/HLOD_BuilderBuild.png)
 
 `UPrimitiveComponent`中有个配置：
@@ -111,12 +124,15 @@ BuildHLOD的大致流程：
 EHLODBatchingPolicy HLODBatchingPolicy;
 ```
 这里要先处理这个配置：
+
 ![HLOD_BatchPolicy](../assets/UE/HLOD_BatchPolicy.png)
+
 这个配置给了Component机会强制自己采用指定的方式生成HLOD，不论它所有的HLODLayer的配置如何。目前只要不是配置的None，就会强制用InstanceMesh的方式Batch，它们会在其它Component处理好之后，单独用`UHLODBuilder::BatchInstances()`合并。
 
 但是`UHLODBuilder`的`ShouldIgnoreBatchingPolicy()`实现可以控制自己要不要处理Component上的BatchingPolicy。默认是要处理的。目前只有`UHLODBuilderInstancing`忽略，因为它本身就是用的这种合并策略。
 
 `UActorComponent`上还有方法控制强行使用自己的自定义`UHLODBuilder`：
+
 ![HLOD_CustomHLODBuilderClass](../assets/UE/HLOD_CustomHLODBuilderClass.png)
 
 `ULandscapeComponent`就实现了自己的`ULandscapeHLODBuilder`。
@@ -126,7 +142,9 @@ EHLODBatchingPolicy HLODBatchingPolicy;
 TMap<TSubclassOf<UHLODBuilder>, TArray<UActorComponent*>> HLODBuildersForComponents;
 ```
 其中Key为nullptr的就是没有自定义UHLODBuilder的Component，那就用this，调用最终的Build方法。
+
 ![HLOD_VirtualBuild](../assets/UE/HLOD_VirtualBuild.png)
+
 所有不同的`UHLODBuilder`就是实现这个方法。
 
 ## 3.1 Instance
@@ -146,6 +164,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 ## 3.2 MeshMerge
 把所有StaticMeshComponent合并成一个StaticMesh。主要功能实现在`MeshMergeUtilities`模块中。
+
 ![HLOD_MergeMesh](../assets/UE/HLOD_MergeMesh.png)
 
 在选择MergedMesh之后，会出现`MeshMergeSettings`，关于如何合并Mesh的设置。
@@ -180,6 +199,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 ## 3.3 SimplifiedMesh
 这个和`MeshMerge`一样，都是把多个Mesh合并成一个。不同之处在于：
+
 * MeshMerge 是直接使用Mesh某个LOD作为合并Mesh来源，把它们直接合并成一个Mesh。
 * `SimplifiedMesh` 是采用算法计算出一个简化的Mesh，然后再合并成一个。 
   * UE自己实现了一个`FProxyLODMeshReduction`
@@ -214,7 +234,6 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 ![HLOD_SimplifiedMesh_Material](../assets/UE/HLOD_SimplifiedMesh_Material.png)
 
-
 ## 3.4 MeshApproximate
 
 对一组StaticMesh的输入，构建近似Mesh，和材质。
@@ -242,6 +261,7 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 这四种生成方式各有各的好处，`Instance`和`MeshMerge`得到的效果较好，因为用了最后一级LOD生成，且合成InstacedMesh或就是一个Mesh，渲染性能也会好一点。`SimplifiedMesh`和`MeshApproximate`会简化Mesh并合成一个，渲染性能会非常好，但是实际效果较差。可以参考《Fortnite》的做法：
 
 《Fortnite》第五章
+
 - 建筑的HLOD（2层）
   - HLOD0特殊合并网格体，支持破坏，单元大小为256m，加载范围为512m，空间加载。
   - HLOD1简化网格体，单元大小为512m，加载范围为2048m，空间加载。
