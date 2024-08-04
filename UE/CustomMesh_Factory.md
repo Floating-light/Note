@@ -23,16 +23,16 @@ VertexFactory
 * 创建并绑定VertexBuffer
 * 创建并绑定InputLayout
 * 创建并绑定VertexShader
-* 
+
 [顶点工厂的类图]粗略的继承关系
 
-VertexFactory首先要负责从模型资源获取渲染需要的数据，把它们上传到GPU，即各种GPUBuffer，这些在UE中被抽象成以`FRHI`开头的各种资源，这些资源才可以直接被绑定到渲染管线中。在CPU端这些数据存储在：
+VertexFactory首先要负责从模型资源获取渲染需要的数据，把它们上传到GPU，即各种GPUBuffer，这些在UE中被抽象成以`FRHI`开头的各种资源，这些资源才可以直接被绑定到渲染管线中。
 
 这一切自然要从`UStaticMesh`说起，毕竟一个模型导入到UE后，就成为了一个`UStaticMesh`。模型的原始数据保存在`UStaticMesh`的`FStaticMeshSourceModel`：
 ```c++
 TArray<FStaticMeshSourceModel> SourceModels;
 ```
-在`UStaticMesh::Serialize()`中序列化。里面的模型数据仅编辑器下才会存在：
+它在`UStaticMesh::Serialize()`中序列化。里面的模型数据仅编辑器下才会存在：
 ![VF_SerializeSourceModel](../assets/UE/VF_SerializeSourceModel.png)
 
 而真正的渲染数据是`UStaticMesh`中的`FStaticMeshRenderData`：
@@ -125,18 +125,120 @@ UStaticMesh::PostLoad()
 
 这里代码的命名是UniformBuffer，似乎是OpenGL里面的叫法，和DX12中的Constantbuffer应该是一个意思。这里判断要不要创建`Uniformbuffer`在Windows上多半是能通过的。这个Buffer主要是把前面说的那些顶点数据，以Buffer的形式传给Shader，然后再HLSL中我们手动读取。里面创建时，会把`Data`中的那些Buffer初始化给它。而另外一个`LooseParametersUniformBuffer`似乎是和GPUSkin相关的？
 
-至此，一个`UStaticMesh`的`FLocalVertexFactory`就初始化好啦。从`FStaticMeshRenderData`这里开始，把每一级LODResource的Mesh数据分开存，且一个LODResorce都对应一个VertexFactory，在GameThread，先加载好FStaticMeshRenderData，然后调用它的初始化，对LODResource中的每一个Buffer都调用它的初始化方法，创建渲染线程的命令，从对应的原始数据创建RHIBuffer，并上传数据，然后用LODResource初始化对应的VertexFactory，根据有的VertexBuffer和里面的格式，引用这些Buffer和对应的SRV，创建对应的`VertexDeclaration`。然后创建VertexFactory需要的UniformBuffer。
+至此，一个`UStaticMesh`的`FLocalVertexFactory`就初始化好啦。从`FStaticMeshRenderData`这里开始，把每一级LODResource的Mesh数据分开存，且一个LODResource对应一个VertexFactory，在GameThread，先加载好`FStaticMeshRenderData`中的原始数据，然后调用它的初始化创建GPU资源。对LODResource中的每一个Buffer都调用它的初始化方法，创建渲染线程的命令，从对应的原始数据创建RHIBuffer，并上传数据，然后用LODResource初始化对应的VertexFactory，根据有的VertexBuffer和里面的格式，引用这些Buffer和对应的SRV，创建对应的`VertexDeclaration`，将来Renderer会通过`FVertexFactory::GetStreams()`使用它。最后再创建VertexFactory需要的UniformBuffer。
+
+# Vertex Shader
+`FLocalVertexFactory`最后都会编译出对应的VertexShader，那这一步又是怎么完成的呢？
+
+一个VertexFactory对应的的HLSL文件中通常只需要实现一些函数和结构体即可，例如`BasePassVertexShader.usf`中用了很多它这个文件和它直接Include的文件中并没有定义的函数和结构体，我们的VertexFactory对应的HLSL文件，例如`LocalVertexFactory.ush`，就需要定义这些函数和结构体，编译时会把它们当成Include文件在`BasePassVertexShader.usf`中展开。可以看看函数`VertexFactoryGetInterpolantsVSToPS()`，结构体`FVertexFactoryInterpolantsVSToPS`。
+
+此外，UE中的Shader组织采用了一种被称为`Uber Shader`的方式，在一个大的Shader文件中实现所有功能，用不同的宏可以选择性开启或关闭一些功能，可以参考[这个](https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4)。例如，`FLocalVertexFactory`中的`FVertexFactoryInterpolantsVSToPS`结构体定义：
+
+![VF_LightMapIndex](../assets/UE/VF_LightMapIndex.png)
+
+顶点工厂可以实现一个函数，定义一些宏：
+![VF_VFDefineMa](../assets/UE/VF_VFDefineMa.png)
+不同的宏定义处理后的VertexShader HLSL结果：
+
+![VF_InterpolantVSToPSResult](../assets/UE/VF_InterpolantVSToPSResult.png)
+
+这里`TBasePassVSTLightMapPolicyHQ`还多了许多其它代码，都是通过宏定义开启的：
+
+![VF_DiffVSLightMapHQ](../assets/UE/VF_DiffVSLightMapHQ.png)
+
+所以一个顶点工厂，根据不同宏的排列组合，会编译出很多个VertexShader：
+
+![VF_ResultVS](../assets/UE/VF_ResultVS.png)
+
+可以看到，仅对于BasePass的VertexShader就有7中不同的情况，针对不同的光照模式、DistanceFieldShadow。估计多改一下渲染设置，材质的设置，开启不同的渲染效果组合，这还会更多。此外，不同的顶点工厂实现都会生成这么多的排列结果。好在大部分代码都是直接复用的。
+
+回到C++这边，`FLocalVertexFactory`又是怎么控制VertexShader的呢？
+
+VertexFactory可以控制自己应该生成什么样的permutations，通常如果我们可以预知我们的`VertexFactory`会被用于什么样的材质，不会用于什么样的材质或效果，就可以排除部分permutations的编译，通过`ShouldCompilePermutations()`实现，例如GPUSkinVertexFactory的实现：
+![VF_GPUSkinVFPermutations](../assets/UE/VF_GPUSkinVFPermutations.png)
+
+每个VertexFactory都需要用宏，声明一个静态成员`FVertexFactoryType`和对应的Get方法:
+
+![VF_DeclareVFType](../assets/UE/VF_DeclareVFType.png)
+
+然后在CPP文件中用`IMPLEMENT_VERTEX_FACTORY_TYPE`初始化这个静态实例，实现对应的方法：
+![VF_ImplementVFType](../assets/UE/VF_ImplementVFType.png)
+
+用一系列枚举表明这个VertexFactory支持的功能。这个宏还通过传入的类名，拼接出`FLocalVertexFactory`实现的一些静态方法，或作为模板参数生成一些对`VertexFactory.h`中的静态函数的调用，都作为函数指针传给`FVertexFactoryType`，还有ush文件路径，`FVertexFactoryType`就有了这个VertexFactory的几乎所有信息，后续的编译就全靠它了。
+
+## 参数传递
+确定了ush文件后，我们还需要确定向VertexShader传递什么参数？比如SplineMesh需要传入Spline的开始点，结束点，Tangent，Scale等等，参考`SplineMeshShaderParams.h`。
+
+我们可以继承`FVertexFactoryShaderParameters`，实现向VertexShader中绑定数据。
+
+![VF_VFShaderParam](../assets/UE/VF_VFShaderParam.png)
+
+以`FLocalVertexFactoryShaderParameters`为例，首先继承并实现自己绑定参数的逻辑，细节后面再说。声明`FLocalVertexFactory`的参数类型，指定VertexFactory类型、Parameter类型、适用的着色阶段：
+
+![VF_ImplUniformForVF](../assets/UE/VF_ImplUniformForVF.png)
+
+可以看到实际就是根据这三个参数，特化了一个模板类，相当于确定了`FLocalVertexFactory`在`SF_Vertex`阶段的Shader参数是`FLocalVertexFactoryShaderParameters`类型的。这个特化的模板类中实现了三个静态方法，与之前实现顶点工厂的宏`IMPLEMENT_VERTEX_FACTORY_TYPE`展开后看到的传进去的三个以`FLocalVertexFactory`为模板参数的函数指针有关，是一一对应的，包括创建`FLocalVertexFactoryShaderParameters`结构体指针，获取布局信息，绑定参数。例如在渲染时绑定参数，实现FVertexFactory时传的`GetVertexFactoryParametersElementShaderBindings<FLocalVertexFactory>()`将被调用：
+
+![VF_GetEleBindings](../assets/UE/VF_GetEleBindings.png)
+
+这里用`FLocalVertexFactory`类型和SF_Vertex就确定了特化的ParamterTraits结构体，然后就只能调用到`FLocalVertexFactoryShaderParameters`的实现中。这也说明了一种顶点工厂的一个着色阶段只能由一个这种GlobalUniformBuffer的绑定。
+
+### 绑定Global Shader Parameter
+
+如果想绑定一个UniformBuffer，首先定义UniformBuffer的结构：
+
+![VF_DecalreUniformBuffer](../assets/UE/VF_DecalreUniformBuffer.png)
+
+`FLocalVertexFactory`要先创建它的UniformRHIBuffer，可以直接在`FLocalVertexFactory::InitRHI()`中创建并初始化数据，并作为成员变量保存起来。在`FLocalVertexFactoryShaderParameters::GetElementShaderBindings()`中绑定数据：
+
+![VF_BindUniformBufferData](../assets/UE/VF_BindUniformBufferData.png)
+
+绑定时，传入的第一个参数是参数位置，通过`Shader->GetUniformBufferParameter<FLocalVertexFactoryUniformShaderParameters>()`获得绑定位置，第二个参数传入实际的`FRHIUniformBuffer`即可。这种GlobalShaderParameter，在VertexShader中直接使用同名`(LocalVF)`的ConstantBuffer就行。
+
+### 在FVertexFactoryShaderParameters中绑定参数
+我们还可以在`FVertexFactoryShaderParameters`的成员变量中声明Shader参数。例如在`FLocalVertexFactoryShaderParameters`中：
+
+![VF_LocalVFParam](../assets/UE/VF_LocalVFParam.png)
+
+可以用`LAYOUT_FIELD`声明一个Shader参数，在对应的HLSL代码中，直接这样使用:
+
+![VF_ShaderParamMemebrDecl](../assets/UE/VF_ShaderParamMemebrDecl.png)
+
+在编译好对应的Shader后，就会执行`FLocalVertexFactoryShaderParameters::Bind()`，参数`ParameterMap`，是从HLSL代码的编译结果中获取的Shader参数信息，里面包含了HLSL中用到的所有参数和绑定信息：
+
+![VF_ParameterBindInfo](../assets/UE/VF_ParameterBindInfo.png)
+
+注意到在UE的HLSL代码中，没有显示使用`register(b0)`指定Buffer的绑定位置，而是让编译器自动为资源分配寄存器，然后通过`ID3D12ShaderReflection`从编译好的代码中获取绑定信息。具体可以参考`ID3D12ShaderReflection`和`CompileAndProcessD3DShaderDXC()`。
+
+这里也可以看到，如果HLSL代码中使用了对应的`GLOBAL_SHADER_PARAMETER_STRUCT`，也会出现在`ParameterMap`中，但这里不用保存这种Buffer的绑定信息，因为它们可以在`GetElementShaderBindings`中通过Shader直接获得绑定点。
+
+在C++这一侧，对每一个用`LAYOUT_FIELD`声明的Shader参数，都要在这里调用自己的`MyCustomParam.Bind(ParameterMap，ParamName)`方法，从`ParameterMap`中读取名为`ParamName`的参数的绑定信息。这样`MyCustomParam`就知道了自己绑定到ShaderParameter的位置信息，这样后面就能用`MyCustomParam`绑定实际的数据。在`GetElementShaderBindings()`绑定具体数据：
+
+![VF_ActuallParamBind](../assets/UE/VF_ActuallParamBind.png)
+
+这里的数据类型要与HLSL中使用的一致。
+
+# 实现InstancedSkeletalMesh
+
+必须实现的结构体：
+FVertexFactoryInput VertexShader 的顶点数据输入
+FVertexFactoryIntermediates 会调用 GetVertexFactoryIntermediates(FVertexFactoryInput) 计算出这个中间结构体，保存中间数据，避免多次计算。Main里面不直接使用它。
+FVertexFactoryInterpolantsVSToPS LocalVertexFactoryCommon.ush 调用`VertexFactoryGetInterpolantsVSToPS()`计算出来。
+
+VF中必须实现的函数：
+FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput) // 计算中间数据
+float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates) // 计算出WorldPosition，没有材质中的顶点偏移
+half3x3 VertexFactoryGetTangentToLocal( FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates ) // 获取TangentToLocal变换
+FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float3 WorldPosition, half3x3 TangentToLocal) // 计算材质中需要的数据，FMaterialVertexParameters，MaterialTemplate.ush
+float4 VertexFactoryGetRasterizedWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float4 InWorldPosition)
+
+FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, FMaterialVertexParameters VertexParameters) // 计算插值到PS的数据
 
 
 
 
 
-
-
-
-
-
-
+-----------------------
 
 Vertex Factory 如何控制到Common base pass vertex shader的输入 ?
 
@@ -186,4 +288,6 @@ IMPLEMENT_VERTEX_FACTORY_TYPE_EX(FLocalVertexFactory,"/Engine/Private/LocalVerte
 * [skelot instanced skeletal mesh rendering](https://www.unrealengine.com/marketplace/en-US/product/skelot-instanced-skeletal-mesh-rendering)
 * [基于UE4的 Mobile Skeletal Instance - VS Shader](https://zhuanlan.zhihu.com/p/339031851)
 * https://www.zhihu.com/question/377037950/answer/1067763870
-* 
+* [Shader Permutations](https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4)
+* https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161
+* https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4
