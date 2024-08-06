@@ -220,18 +220,59 @@ VertexFactory可以控制自己应该生成什么样的permutations，通常如�
 
 # 实现InstancedSkeletalMesh
 
-顶点数据：每个顶点的受影响的JointId和对应权重，Buffer由`FSkelotSkinWeightVertexBuffer`表示，在
-FSkelotSkinWeightVertexBuffer::InitBuffer()中，用传入的`TArray<FSkinWeightInfo>`初始化自己，这是引擎SkeletonMesh的顶点蒙皮信息，引擎的一个顶点最多支持12个骨骼，但Skelot最多只支持4个，一个顶点用4个uint8表示BoneIndex(最多256个骨骼)，4个uint8表示权重，多的直接不要，数据格式直接static_cast。
+如何组织需要的数据？
 
-![VF_SkelotWeightBuffer](image.png)
+Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把Skeleton和对应的动画Sequence配置在一起，还有对应的模型。
 
-动画数据：FAnimationBuilder::Run()，每个原始AnimationSequence数据都要上传到GPU，支持动画混合，方法是把需要混合的Pose数据计算好，和前面的基础动画数据一起上传。例如，我们有S1 ~ S3三个动画，前面是这三个动画的数据，这里每个joint存的直接是模型空间的变换，Joint父子关系的变换已经处理好了，已经是绑定空间的最终变换了，在GPU直接乘以权重去变换顶点位置即可。后面紧跟着就是混合的动画。这样一起组成一个大的动画序列上传到GPU，然后每帧更新要当前的动画帧Index，需要混合时，就在CPU端计算出从当前Pose混合到目标动画的在这个动画Buffer中的Index。
+## 动画数据预处理
+预先计算好所有Sequence在绑定空间的最终变换，存到一个巨大TransformBuffer中。这里的动画数据可以直接用`UAnimSequenceBase`的方法读取。对每个Sequence，还可以配置它能混合到什么Sequence，以及混合的时长。然后进行预处理，从起始Sequence中的每一帧到目标Sequence的混合Pose，只用生成配置的时长即可。假设我们一个Skeleton有三个Sequence，其中，S1可以混合到S2和S3，混合时长为0.2s。在生成的AnimationBuffer中，前面三个Sequence的动画数据依次排列，且Sequence自己记下在生成的Buffer中的开始位置。然后开始生成混合帧，如果动画都是60帧/s的，混合0.2s就是要混合前12帧，则从S1的每一帧开始，都要混合S2的前12帧，这里也是混合好后，计算好绑定空间的变换矩阵。这里每个混合都要记下自己有多少帧，从Buffer中的什么位置开始的。最终生成的AnimationBuffer的布局如下：
 
 ```
 [        S1         ][        S2         ][        S3         ]
 [ S1_1->S2 ][ S1_2->S2 ]...[ S1_i->S2 ][ S1_1->S3 ][ S1_2->S3 ]...[ S1_i->S3 ]
 ```
+插件`Skelot`中的一个配置：
 
+![VF_AnimationCollectionCfg](../assets/UE/VF_AnimationCollectionCfg.png)
+
+只需要配置好骨骼，支持的Sequence，及可混合的目标，Meshes配置的是支持的模型。灰色的数据是构建好之后的结果。可以看到一共有差不多1.8W个Pose，其中1.68W都是混合后生成的。
+
+这样一来，我们只用每帧更新每个实例播放到了AnimationBuffer中的哪一个Index，把它传给GPU，就可以实现在VertexShader中更新动画。
+
+这个AnimationBuffer需要上传到GPU，所以必须构建RHI资源。所以，要先从`FRenderResource`继承：
+
+![VF_SkelotBuffer](../assets/UE/VF_SkelotBuffer.png)
+
+这里需要把预计算的动画`Transform`数据存在`FStaticMeshVertexDataInterface* Transforms`中，还要实现序列化。最重要的是实现`InitRHI()`，在渲染线程执行，创建对应的`FBufferRHIRef`。编辑器下预计算好动画数据后，就可以立即发送渲染命令，执行`AnimationBuffer.InitResource(RHICmdList)`。
+
+## 模型数据处理
+
+支持骨骼动画的模型中，每个顶点还要保存受影响的BoneIndex和对应权重。这些数据在引擎的`USkeletalMesh`中就有，我们可以直接从中读取，然后转换成我们需要的格式，同样也要处理LOD。这里的思路与前面分析过的`UStaticMesh`很相似。
+
+在预处理的同时，也处理一下模型。模型数据我们配置的是`USkeletalMesh`，讲道理里面顶点也有BoneIndex和权重，直接用不就行了？UE的BoneIndex和蒙皮权重都是uint16：
+
+![VF_SkinWeight](../assets/UE/VF_SkinWeight.png)
+
+我们想直接用uint8，节约一点。骨骼动画还有个概念，就是每个顶点可以被多少根骨骼影响？我们这里简单点，顶点数据统一存四个。由于这里要作为顶点数据，所以必须从`FVertexBuffer`继承，用一个成员变量存储原始数据，直接用`USkeletalMesh`中的`TArray<FSkinWeightInfo>`初始化它，这是引擎SkeletonMesh的顶点蒙皮信息，一个顶点最多存储了12个骨骼。我们这里需要转换一下数据格式，一个顶点用4个uint8表示四个BoneIndex(最多256个骨骼)，4个uint8表示权重，多的直接不要，数据直接static_cast。
+
+![VF_SkelotWeightBuffer](image.png)
+
+其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。
+
+接下来就可以构建顶点工厂了。
+
+对每一级LOD都要构建对应的`SkinWeight`数据和顶点工厂。
+而且不同MeshSection的能影响的骨骼数量还不同，所以每级LOD Mesh都要准备四种顶点工厂。
+
+
+
+
+
+
+
+
+
+--------------------------------------
 必须实现的结构体：
 FVertexFactoryInput VertexShader 的顶点数据输入
 FVertexFactoryIntermediates 会调用 GetVertexFactoryIntermediates(FVertexFactoryInput) 计算出这个中间结构体，保存中间数据，避免多次计算。Main里面不直接使用它。
