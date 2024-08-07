@@ -247,30 +247,114 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 ## 模型数据处理
 
-支持骨骼动画的模型中，每个顶点还要保存受影响的BoneIndex和对应权重。这些数据在引擎的`USkeletalMesh`中就有，我们可以直接从中读取，然后转换成我们需要的格式，同样也要处理LOD。这里的思路与前面分析过的`UStaticMesh`很相似。
-
-在预处理的同时，也处理一下模型。模型数据我们配置的是`USkeletalMesh`，讲道理里面顶点也有BoneIndex和权重，直接用不就行了？UE的BoneIndex和蒙皮权重都是uint16：
+支持骨骼动画的模型中，每个顶点还要保存受影响的BoneIndex和对应权重。这些数据在引擎的`USkeletalMesh`中就有，我们可以直接从中读取，然后转换成我们需要的格式，同样也要处理LOD。这里的思路与前面分析过的`UStaticMesh`很相似。模型数据我们配置的是`USkeletalMesh`，讲道理里面顶点也有BoneIndex和权重，直接用不就行了？UE的BoneIndex和蒙皮权重都是uint16：
 
 ![VF_SkinWeight](../assets/UE/VF_SkinWeight.png)
 
-我们想直接用uint8，节约一点。骨骼动画还有个概念，就是每个顶点可以被多少根骨骼影响？我们这里简单点，顶点数据统一存四个。由于这里要作为顶点数据，所以必须从`FVertexBuffer`继承，用一个成员变量存储原始数据，直接用`USkeletalMesh`中的`TArray<FSkinWeightInfo>`初始化它，这是引擎SkeletonMesh的顶点蒙皮信息，一个顶点最多存储了12个骨骼。我们这里需要转换一下数据格式，一个顶点用4个uint8表示四个BoneIndex(最多256个骨骼)，4个uint8表示权重，多的直接不要，数据直接static_cast。
+我们想直接用uint8，节约一点。骨骼动画还有个概念，就是每个顶点可以被多少根骨骼影响？我们这里简单点，顶点数据统一存四个。由于这里要作为顶点数据，所以必须从`FVertexBuffer`继承实现一个`FSkelotSkinWeightVertexBuffer`，用一个成员变量存储原始数据，直接用`USkeletalMesh`中的`TArray<FSkinWeightInfo>`初始化它，这是引擎SkeletonMesh的顶点蒙皮信息，一个顶点最多存储了12个骨骼。我们这里需要转换一下数据格式，一个顶点用4个uint8表示四个BoneIndex(最多256个骨骼)，4个uint8表示权重，多的直接不要，数据直接static_cast。
 
 ![VF_SkelotWeightBuffer](image.png)
 
-其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。
+其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。在构建Animation的同时构建这份数据，注意，这里只是构建好CPU端的数据，并没有初始化RHIBuffer。
 
-接下来就可以构建顶点工厂了。对每一级LOD都要构建对应的`SkinWeight`数据和顶点工厂。
-而且不同MeshSection能影响的骨骼数量还不同，所以每级LOD Mesh都要准备四种顶点工厂。
+-----------------------------
+
+至此，CPU端的数据就处理好了，包括动画和顶点数据，这些数据都可以直接序列化保存下来，这样打包后就不用再进行这些处理。通常在加载`USkelotAnimCollection`出来后就要初始化GPU端的数据，需要发送渲染线程命令，到渲染线程执行：
+
+![VF_PostLoadInitResource](../assets/UE/VF_PostLoadInitResource.png)
+
+这里首先初始化AnimationBuffer的渲染资源。然后初始化配置的所有Meshes的渲染资源，即顶点数据和VertexFactory：
+
+![VF_InitMeshResource](../assets/UE/VF_InitMeshResource.png)
+
+对每个Mesh的每一级LOD都要分别构建对应的顶点工厂。虽然前面构建SkinWeight数据时，统一了影响每个顶点的骨骼数量为4，但是不同MeshSection中，影响一个顶点的骨骼数量可能不同，所以要把影响顶点的骨骼数量作为顶点工厂的模板参数，然后在编译时设置一个宏的值：
+
+![VF_MaxBoneInfluence](../assets/UE/VF_MaxBoneInfluence.png)
+
+在对应的`SkelotVertexFactory.ush`中处理不同情况：
+
+![VF_SkelotCalcBoneMatrix](../assets/UE/VF_SkelotCalcBoneMatrix.png)
+
+所以对每级LOD Mesh都要准备四种顶点工厂：
+
+![VF_FillVertexPerLod](../assets/UE/VF_FillVertexPerLod.png)
+
+构建VertexStrem时，从`FStaticMeshDataType`派生一个`FSkelotBaseVertexFactory::FDataType`，因为要用它里面的常规模型顶点数据类型，在其中再加上骨骼和权重数据的声明：
+
+![VF_VertexBondIndicesWeight](../assets/UE/VF_VertexBondIndicesWeight.png)
+
+然后直接使用`FSkeletalMeshLODRenderData`中的PositionBuffer、TangentBuffer、ColorBuffer、TexCoorBuffer，再加上之前构建的`FSkelotSkinWeightVertexBuffer`，填充`FSkelotBaseVertexFactory::FDataType`。最后调用`FSkelotBaseVertexFactory::SetData()`初始化顶点布局声明`FVertexFactory::Declaration`。
+
+同时还要调用顶点权重数据和每个顶点工厂的`InitResources()`，初始化上传对应的GPU资源。在渲染时，会通过对应顶点工厂自动帮我们绑定顶点数据。这里Mesh数据的组织结构如图：
+
+![VF_SkelotVertexFactoryResource](../assets/UE/VF_SkelotVertexFactoryResource.jpg)
+
+## VertexShader参数
+
+除了顶点权重数据，我们还需要把一些数据传给VertexShader：
+
+* BoneCount 总的骨骼数
+* InstanceOffset 当前实例Index在总的InstanceBuffer中的偏移量，因为不同LODMesh的Draw用的是用一个`Instance_AnimationFrameIndices`和`Instance_Transforms`。
+* MaxInstance 当前DrawInstanced的实例数量
+* NumCustomDataFloats 一个Instance有几个CustomFloats
+* CustomDataInstanceOffset Instance_CustomData的偏移
+* AnimationBuffer 最开始准备的巨大AnimationBuffer
+* Instance_Transforms 每个Instance的Transform
+* Instance_AnimationFrameIndices 每个Instance当前的动画帧Index
+* Instance_CustomData 每个Instance的自定义数据，用于材质中。
+
+这么多数据，适合用一个`GLOBAL_SHADER_PARAMETER`传给VertexShader，首先定义它`FSkelotVertexFactoryParameters`：
+
+![VF_SkelotVertexParameter](../assets/UE/VF_SkelotVertexParameter.png)
+
+然后从`FVertexFactoryShaderParameters`派生，实现`FSkelotShaderParameters`，其中最重要的就是在`GetElementShaderBindings`中绑定我们的`UniformBuffer`，这个Buffer是在`FSkelotProxy::GetDynamicMeshElements()`中构建`FMeshBatchElement`时传递的。
+
+![VF_BindUniformBuffer](../assets/UE/VF_BindUniformBuffer.png)
+
+还要记得用宏实现顶点工厂`TSkelotVertexFactory`使用的Shader参数是`FSkelotShaderParameters`：
+
+![VF_ImplShaderParam](../assets/UE/VF_ImplShaderParam.png)
+
+在对应的`SkelotVertexFactory.ush`Shader文件中，直接用实现的GlobalShaderParameter的名字`SkelotVF`访问这些数据，例如，获取第AnimationFrameIndex帧，骨骼BoneIndex的变换矩阵：
+
+![VF_GetBoneMatrix](../assets/UE/VF_GetBoneMatrix.png)
+
+直接用`参数名.数据成员名`访问，最终用于编译的代码中，UE首先会为GlobaleShaderParameter生成对应的变量声明的代码：
+
+![VF_GlobalParamUsf](../assets/UE/VF_GlobalParamUsf.png)
 
 
+UE会帮我们把`SkelotVertexFactory.ush`中的代码替换成实际的名字：
 
+![VF_ComplieResult](../assets/UE/VF_ComplieResult.png)
 
+## FSkelotProxy构建MeshBatch
+
+主要是在`GetDynamicMeshElements()`搜集绘制的MeshBatch。在`GetViewRelevance()`返回`bDynamicRelevance`为true的情况下，每帧都会调用。
+* 对每个Instance作剔除
+  * 视锥剔除
+  * 距离剔除
+* 计算通过剔除的Instance应该以哪一级LOD绘制。
+* 得到每一级LOD和它对应的Instance。
+* 根据总的可见Instance数量，Alloc Per Instance的数据GPUBuffer`FSkelotInstanceBuffer`，里面包含Transform和AnimationFrameIndex。
+  * 如果有CustomData，还要Alloc自定义数据GPUBuffer`FSkelotCIDBuffer`。
+* AnimationFrameIndex 中，每个元素32位，前16位是当前帧AnimationIndex，后16位是上一帧AnimationIndex。
+* 所有LOD共用一个`FSkelotInstanceBuffer`和`FSkelotCIDBuffer`。
+* 构建MeshBatch
+  * CreateUniformBuffer() 创建针对每个LODMesh Draw的`FSkelotVertexFactoryParameters`。分配各种Buffer，针对LOD中Instance数量，初始化InstanceOffset。
+  * 处理每个MeshSection可能EVF_BoneInfluence不同，用不同的VertexFactory。
+
+这里最最重要的就是`FSkelotMeshGenerator::CreateUniformBuffer()`，创建了`FSkelotVertexFactoryParameters`的RHIBuffer，`FSkelotMeshGenerator::AllocateMeshBatch()`把这些数据传给了MeshBatch。这就和`FSkelotShaderParameters::GetElementShaderBindings()`对应上了。
+
+USkelotComponent::TickComponent()
+GameThread的数据同步主要从`UActorComponent::DoDeferredRenderUpdates_Concurrent()`开始。`USkelotComponent::SendRenderDynamicData_Concurrent()`，每帧更新。
 
 
 
 
 
 --------------------------------------
+----------------------
 必须实现的结构体：
 FVertexFactoryInput VertexShader 的顶点数据输入
 FVertexFactoryIntermediates 会调用 GetVertexFactoryIntermediates(FVertexFactoryInput) 计算出这个中间结构体，保存中间数据，避免多次计算。Main里面不直接使用它。
@@ -346,3 +430,4 @@ IMPLEMENT_VERTEX_FACTORY_TYPE_EX(FLocalVertexFactory,"/Engine/Private/LocalVerte
 * https://dev.epicgames.com/documentation/en-us/unreal-engine/shader-debugging-workflows-unreal-engine?application_version=5.4
 * [ShaderParamBind](https://zhuanlan.zhihu.com/p/485239547)
 * https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-2-animated-crowd-rendering
+* [Global Uniform Buffer](https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161)

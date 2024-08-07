@@ -38,13 +38,26 @@ UE_DECLARE_COMPONENT_ACTOR_INTERFACE(PrimitiveComponent)
 
 ![RM_scene_addPrimitive](../assets/UE/RM_scene_addPrimitive.png)
 
-这里的AddedPrimitiveSceneInfos会在`FDeferredShadingSceneRenderer::Render()`中处理，在`FSceneRenderer::OnRenderBegin()`中调用`FScene::Update()`，更新渲染Scene的相关信息。这里会处理新加进来的`AddedPrimitiveSceneInfos`，完成后清空它。
+这里的AddedPrimitiveSceneInfos会在`FDeferredShadingSceneRenderer::Render()`中处理，在`FSceneRenderer::OnRenderBegin()`的最后调用`FScene::Update()`，更新渲染Scene的相关信息，处理各种Primitive上的数据改变，包括Primitve添加删除、Transform、VirtualTexture更新等。处理新加进来的`AddedPrimitiveSceneInfos`，完成后清空它。
 
 构建GPUScene，场景有多少个`FPrimitiveSceneInfo`就要构建多少个实例。
 
 AddStaticMesh, StaticPath
 
 ![RM_StaticPass](../assets/UE/RM_StaticPass.png)
+
+初始化View，计算Visibiliy，搜集可见元素的Mesh。
+FDeferredShadingSceneRenderer::BeginInitViews()
+  FVisibilityTaskData::ProcessRenderThreadTasks()
+    FVisibilityViewPacket::BeginInitVisibility()
+      如果场景种FPrimitiveSceneInfo太多，这里会创建超级多的数据，用于计算每个Primitive的Visibility
+      每个Primitive至少循环处理一次
+
+void FRelevancePacket::ComputeRelevance(FDynamicPrimitiveIndexList& DynamicPrimitiveIndexList)
+对所有可见的Primitive计算相关性，
+  PrimitiveSceneProxy->GetViewRelevance(&View);
+  DynamicPrimitiveViewMasks->Primitives[PrimitiveIndex]
+  FDynamicMeshElementContext::GatherDynamicMeshElementsForPrimitive(FPrimitiveSceneInfo* Primitive, uint8 ViewMask)
 
 
 FNaniteMeshProcessor

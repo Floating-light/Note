@@ -276,4 +276,6 @@ GConfig->GetString(TEXT("/Script/Engine.HLODBuilder"), TEXT("HLODInstancedStatic
 
 * https://dev.epicgames.com/documentation/zh-cn/unreal-engine/world-partition---hierarchical-level-of-detail-in-unreal-engine
 * https://mp.weixin.qq.com/s/sbsDIN6dUtq5CGhqRBR5oQ
-* 
+* 简化Mesh算法：
+  * https://zhuanlan.zhihu.com/p/547256817
+  * https://hhoppe.com/proj/newqem/
