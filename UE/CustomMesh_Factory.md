@@ -259,10 +259,8 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。
 
-接下来就可以构建顶点工厂了。
-
-对每一级LOD都要构建对应的`SkinWeight`数据和顶点工厂。
-而且不同MeshSection的能影响的骨骼数量还不同，所以每级LOD Mesh都要准备四种顶点工厂。
+接下来就可以构建顶点工厂了。对每一级LOD都要构建对应的`SkinWeight`数据和顶点工厂。
+而且不同MeshSection能影响的骨骼数量还不同，所以每级LOD Mesh都要准备四种顶点工厂。
 
 
 
