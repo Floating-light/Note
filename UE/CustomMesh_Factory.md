@@ -1,32 +1,10 @@
-* [Creating a Custom Mesh Component in UE4 | Part 1: An In-depth Explanation of Vertex Factories](https://medium.com/realities-io/creating-a-custom-mesh-component-in-ue4-part-1-an-in-depth-explanation-of-vertex-factories-4a6fd9fd58f2)
-
-* [Creating a Custom Mesh Component in UE4 | Part 0: Intro](https://medium.com/realities-io/creating-a-custom-mesh-component-in-ue4-part-0-intro-2c762c5f0cd6)
-* [Global Uniform Shader Parameter(1)](https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161)
-* https://outerra.blogspot.com/2012/05/procedural-grass-rendering.html
-* https://gdcvault.com/play/1026177/Instancing-and-Order-Independent-Transparency
-
-* [Shader参数绑定](https://zhuanlan.zhihu.com/p/485239547)
-  * 在HLSL代码中可以不显示指定资源的绑定位置register(t0)
-  * 编译时会自动生成
-  * 然后用ID3D12ShaderReflection获取编译好的Shader代码的参数绑定信息
-    * 可以拿到参数名字，绑定Space，BindPoint等所有信息。
-  * 在C++端就可以动态决定资源的绑定位置
-* [graphics-programming-overview-for-unreal-engine](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/graphics-programming-overview-for-unreal-engine)
-
-
-最近发现一个插件，实现了DrawInstanced SkeletalMesh。这里需要实现自定义的`UPrimitiveComponent`和对应的`FPrimitiveSceneProxy`、`FVertexFactory`等。本文首先简要介绍实现自定义`UPrimitiveComponent`需要的基本操作，然后分析`Skelot`渲染方面的实现细节。
+最近发现一个插件`Skelot`，实现了`Instaned Skeleton Mesh Rendering`。可以实现同时渲染几万个SkeletonMesh，而且每个实例都可以播着不同的动画，不同动画之间还能有混合过渡，[效果视频](https://www.bilibili.com/video/BV1aogKesEYs)。本质就是实现了一个SkeletonMesh版的`UInstancedStaticMesh`。要实现实例化绘制SkeletonMesh，通常需要实现自定义的`UPrimitiveComponent`和对应的`FPrimitiveSceneProxy`、`FVertexFactory`等。本文首先简要介绍实现自定义`UPrimitiveComponent`需要的基本操作，然后分析`Skelot`渲染方面的实现细节。
 
 # FLocalVertexFactory
+
 不同的VertexFactory实现了不同的顶点处理方式，即如何从VertexShader中传进来的Vertex数据得到VS输出给PS的顶点数据。通常，对于StaticMesh，直接把模型的VertexBuffer传给GPU，直接读顶点数据中的Position进行MVP变换即可，复杂一点，如果有顶点偏移，再加上顶点偏移，这就是`UStaticMeshComponent`实现的Mesh渲染方式。此外，如果是`USkeletalMeshComponent`这种骨骼动画的渲染，除了普通Mesh的顶点数据和处理逻辑，在顶点中还需要传入影响当前顶点的骨骼Index和对应的蒙皮权重，然后还需要一个额外的Buffer，传入当前帧的Pose，即每个骨骼对应的位置信息。渲染时，在VertexShader中根据这些数据计算出顶点的最终位置。这种顶点数据和处理逻辑的差异就是由`FLocalVertexFactory`处理的。而`FLocalVertexFactory`就是`UStaticMeshComponent`使用的顶点工厂，后面以它为例分析VertexFactory的工作机制。
 
-VertexFactory
-* 创建并绑定VertexBuffer
-* 创建并绑定InputLayout
-* 创建并绑定VertexShader
-
-[顶点工厂的类图]粗略的继承关系
-
-VertexFactory首先要负责从模型资源获取渲染需要的数据，把它们上传到GPU，即各种GPUBuffer，这些在UE中被抽象成以`FRHI`开头的各种资源，这些资源才可以直接被绑定到渲染管线中。
+VertexFactory首先要负责从模型资源获取渲染需要的数据，构建顶点数据布局。这些数据还需要以VertexBuffer的形式上传到GPU，即各种GPUBuffer，这些在UE中被抽象成以`FRHI`开头的各种资源，这些资源才可以直接被绑定到渲染管线中。
 
 这一切自然要从`UStaticMesh`说起，毕竟一个模型导入到UE后，就成为了一个`UStaticMesh`。模型的原始数据保存在`UStaticMesh`的`FStaticMeshSourceModel`：
 ```c++
@@ -39,7 +17,7 @@ TArray<FStaticMeshSourceModel> SourceModels;
 ```c++
 TUniquePtr<class FStaticMeshRenderData> RenderData;
 ```
-[补一个FStaticMeshRenderData类图，到VF]
+![VF_LocalVertexFactoryG](../assets/UE/VF_LocalVertexFactoryG.jpg)
 
 `FStaticMeshRenderData`中，以每个LOD的Mesh数据单独保存为一个`FStaticMeshLODResources`，其中包含了一个LODMesh的VertexBuffer和IndexBuffer等数据，以及对应的MeshSection，不同的Section对应不同的MaterialIndex，引用了不同VertexBuffer和IndexBuffer范围。`FStaticMeshLODResources`相当于是从原始的模型数据`SourceModels`中，提取并重新组织了自己用得到的顶点数据，这些数据仍然是CPU端的。
 
@@ -130,7 +108,7 @@ UStaticMesh::PostLoad()
 # Vertex Shader
 `FLocalVertexFactory`最后都会编译出对应的VertexShader，那这一步又是怎么完成的呢？
 
-一个VertexFactory对应的的HLSL文件中通常只需要实现一些函数和结构体即可，例如`BasePassVertexShader.usf`中用了很多它这个文件和它直接Include的文件中并没有定义的函数和结构体，我们的VertexFactory对应的HLSL文件，例如`LocalVertexFactory.ush`，就需要定义这些函数和结构体，编译时会把它们当成Include文件在`BasePassVertexShader.usf`中展开。可以看看函数`VertexFactoryGetInterpolantsVSToPS()`，结构体`FVertexFactoryInterpolantsVSToPS`。
+一个VertexFactory对应的的HLSL文件中通常只需要实现一些函数和结构体即可，在`BasePassVertexShader.usf`中用了很多它这个文件和它直接Include的文件中并没有定义的函数和结构体，我们的VertexFactory对应的HLSL文件，例如`LocalVertexFactory.ush`，就需要定义这些函数和结构体，编译时会把它们当成Include文件在`BasePassVertexShader.usf`中展开。可以看看函数`VertexFactoryGetInterpolantsVSToPS()`，结构体`FVertexFactoryInterpolantsVSToPS`。
 
 此外，UE中的Shader组织采用了一种被称为`Uber Shader`的方式，在一个大的Shader文件中实现所有功能，用不同的宏可以选择性开启或关闭一些功能，可以参考[这个](https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4)。例如，`FLocalVertexFactory`中的`FVertexFactoryInterpolantsVSToPS`结构体定义：
 
@@ -152,16 +130,14 @@ UStaticMesh::PostLoad()
 
 可以看到，仅对于BasePass的VertexShader就有7中不同的情况，针对不同的光照模式、DistanceFieldShadow。估计多改一下渲染设置，材质的设置，开启不同的渲染效果组合，这还会更多。此外，不同的顶点工厂实现都会生成这么多的排列结果。好在大部分代码都是直接复用的。
 
-回到C++这边，`FLocalVertexFactory`又是怎么控制VertexShader的呢？
-
-VertexFactory可以控制自己应该生成什么样的permutations，通常如果我们可以预知我们的`VertexFactory`会被用于什么样的材质，不会用于什么样的材质或效果，就可以排除部分permutations的编译，通过`ShouldCompilePermutations()`实现，例如GPUSkinVertexFactory的实现：
+回到C++这边，`FLocalVertexFactory`又是怎么控制VertexShader的呢？VertexFactory可以控制自己应该生成什么样的permutations，通常如果我们可以预知我们的`VertexFactory`会被用于什么样的材质，不会用于什么样的材质或效果，就可以排除部分permutations的编译，通过`ShouldCompilePermutations()`实现，例如GPUSkinVertexFactory的实现：
 ![VF_GPUSkinVFPermutations](../assets/UE/VF_GPUSkinVFPermutations.png)
 
-每个VertexFactory都需要用宏，声明一个静态成员`FVertexFactoryType`和对应的Get方法:
+在定义一个VertexFactory时还需要用宏生成一些额外的代码，声明一个静态成员`FVertexFactoryType`和对应的Get方法:
 
 ![VF_DeclareVFType](../assets/UE/VF_DeclareVFType.png)
 
-然后在CPP文件中用`IMPLEMENT_VERTEX_FACTORY_TYPE`初始化这个静态实例，实现对应的方法：
+然后在CPP文件中用`IMPLEMENT_VERTEX_FACTORY_TYPE`关联FLocalVertexFactory和对应的ush文件，以及初始化这个静态实例，实现对应的方法：
 ![VF_ImplementVFType](../assets/UE/VF_ImplementVFType.png)
 
 用一系列枚举表明这个VertexFactory支持的功能。这个宏还通过传入的类名，拼接出`FLocalVertexFactory`实现的一些静态方法，或作为模板参数生成一些对`VertexFactory.h`中的静态函数的调用，都作为函数指针传给`FVertexFactoryType`，还有ush文件路径，`FVertexFactoryType`就有了这个VertexFactory的几乎所有信息，后续的编译就全靠它了。
@@ -177,7 +153,7 @@ VertexFactory可以控制自己应该生成什么样的permutations，通常如�
 
 ![VF_ImplUniformForVF](../assets/UE/VF_ImplUniformForVF.png)
 
-可以看到实际就是根据这三个参数，特化了一个模板类，相当于确定了`FLocalVertexFactory`在`SF_Vertex`阶段的Shader参数是`FLocalVertexFactoryShaderParameters`类型的。这个特化的模板类中实现了三个静态方法，与之前实现顶点工厂的宏`IMPLEMENT_VERTEX_FACTORY_TYPE`展开后看到的传进去的三个以`FLocalVertexFactory`为模板参数的函数指针有关，是一一对应的，包括创建`FLocalVertexFactoryShaderParameters`结构体指针，获取布局信息，绑定参数。例如在渲染时绑定参数，实现FVertexFactory时传的`GetVertexFactoryParametersElementShaderBindings<FLocalVertexFactory>()`将被调用：
+可以看到实际就是根据这三个参数，特化了一个模板类，相当于确定了`FLocalVertexFactory`在`SF_Vertex`阶段的Shader参数是`FLocalVertexFactoryShaderParameters`类型的。这个特化的模板类中实现了三个静态方法，与之前实现顶点工厂的宏`IMPLEMENT_VERTEX_FACTORY_TYPE`展开后看到的传进去的三个以`FLocalVertexFactory`为模板参数的函数指针有关，是一一对应的，包括创建`FLocalVertexFactoryShaderParameters`结构体指针，获取布局信息，绑定参数。例如在渲染时绑定参数，实现`FLocalVertexFactory`时传的`GetVertexFactoryParametersElementShaderBindings<FLocalVertexFactory>()`将被调用：
 
 ![VF_GetEleBindings](../assets/UE/VF_GetEleBindings.png)
 
@@ -194,6 +170,10 @@ VertexFactory可以控制自己应该生成什么样的permutations，通常如�
 ![VF_BindUniformBufferData](../assets/UE/VF_BindUniformBufferData.png)
 
 绑定时，传入的第一个参数是参数位置，通过`Shader->GetUniformBufferParameter<FLocalVertexFactoryUniformShaderParameters>()`获得绑定位置，第二个参数传入实际的`FRHIUniformBuffer`即可。这种GlobalShaderParameter，在VertexShader中直接使用同名`(LocalVF)`的ConstantBuffer就行。
+
+这种GlobalShaderParameter不需要显式指定与顶点工厂绑定，在编译顶点工厂时，每个 `GlobalShaderParameter`都会生成自己的定义HLSL代码到一个临时的ush文件中，然后编译VertexShader时，把这些文件当成Include文件一起编译：
+
+![VF_IncludeGlobalShaderParameter](../assets/UE/VF_IncludeGlobalShaderParameter.png)
 
 ### 在FVertexFactoryShaderParameters中绑定参数
 我们还可以在`FVertexFactoryShaderParameters`的成员变量中声明Shader参数。例如在`FLocalVertexFactoryShaderParameters`中：
@@ -222,7 +202,7 @@ VertexFactory可以控制自己应该生成什么样的permutations，通常如�
 
 如何组织需要的数据？
 
-Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把Skeleton和对应的动画Sequence配置在一起，还有对应的模型。
+Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把Skeleton和对应的动画Sequence配置在一起，还有对应的模型。然后直接在`USkelotAnimCollection`中预处理动画和模型数据。
 
 ## 动画数据预处理
 预先计算好所有Sequence在绑定空间的最终变换，存到一个巨大TransformBuffer中。这里的动画数据可以直接用`UAnimSequenceBase`的方法读取。对每个Sequence，还可以配置它能混合到什么Sequence，以及混合的时长。然后进行预处理，从起始Sequence中的每一帧到目标Sequence的混合Pose，只用生成配置的时长即可。假设我们一个Skeleton有三个Sequence，其中，S1可以混合到S2和S3，混合时长为0.2s。在生成的AnimationBuffer中，前面三个Sequence的动画数据依次排列，且Sequence自己记下在生成的Buffer中的开始位置。然后开始生成混合帧，如果动画都是60帧/s的，混合0.2s就是要混合前12帧，则从S1的每一帧开始，都要混合S2的前12帧，这里也是混合好后，计算好绑定空间的变换矩阵。这里每个混合都要记下自己有多少帧，从Buffer中的什么位置开始的。最终生成的AnimationBuffer的布局如下：
@@ -257,9 +237,9 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。在构建Animation的同时构建这份数据，注意，这里只是构建好CPU端的数据，并没有初始化RHIBuffer。
 
------------------------------
+## 顶点工厂初始化
 
-至此，CPU端的数据就处理好了，包括动画和顶点数据，这些数据都可以直接序列化保存下来，这样打包后就不用再进行这些处理。通常在加载`USkelotAnimCollection`出来后就要初始化GPU端的数据，需要发送渲染线程命令，到渲染线程执行：
+至此，CPU端的数据就处理好了，包括动画和顶点数据，这些数据都可以直接序列化保存下来，这样打包后就不用再进行这些处理。游戏开始时，通常在加载`USkelotAnimCollection`出来后就要初始化GPU端的数据，需要发送渲染线程命令，到渲染线程执行：
 
 ![VF_PostLoadInitResource](../assets/UE/VF_PostLoadInitResource.png)
 
@@ -323,14 +303,20 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 ![VF_GlobalParamUsf](../assets/UE/VF_GlobalParamUsf.png)
 
-
 UE会帮我们把`SkelotVertexFactory.ush`中的代码替换成实际的名字：
 
 ![VF_ComplieResult](../assets/UE/VF_ComplieResult.png)
 
 ## FSkelotProxy构建MeshBatch
+在游戏中，如何开始渲染呢？这里的思路和InstancedStaticMesh几乎一样。首先继承`UMeshComponent`实现一个GameThread的`USkelotComponent`，向外提供添加、删除实例，更新实例的Transform，为某个Instance播放动画等操作。还需要在Tick里更新每个实例的动画状态，即播放到哪一帧，然后调用`MarkRenderDynamicDataDirty()`，随后在GameThread的每一帧的末尾会调用`USkelotComponent::SendRenderDynamicData_Concurrent()`，在其中构建所有需要的渲染数据，包括所有Instance播放的AnimationFrameIndex数组，所有Instance的Transforms等数据，最后再用一个渲染命令把数据发到RenderThread，更新`FSkelotProxy`的数据：
 
-主要是在`GetDynamicMeshElements()`搜集绘制的MeshBatch。在`GetViewRelevance()`返回`bDynamicRelevance`为true的情况下，每帧都会调用。
+![VF_GameThreadUpdateData](../assets/UE/VF_GameThreadUpdateData.png)
+
+总体更新流程：
+
+![VF_SkelotUpdateDataThread](../assets/UE/VF_SkelotUpdateDataThread.jpg)
+
+这种动态数据也就会每帧更新。随后在渲染线程发起渲染时，会调用`FSkelotProxy::GetDynamicMeshElements()`搜集绘制的MeshBatch。在`GetViewRelevance()`返回`bDynamicRelevance`为true的情况下，也是每帧都会调用。其中执行的流程大致为：
 * 对每个Instance作剔除
   * 视锥剔除
   * 距离剔除
@@ -343,91 +329,23 @@ UE会帮我们把`SkelotVertexFactory.ush`中的代码替换成实际的名字�
 * 构建MeshBatch
   * CreateUniformBuffer() 创建针对每个LODMesh Draw的`FSkelotVertexFactoryParameters`。分配各种Buffer，针对LOD中Instance数量，初始化InstanceOffset。
   * 处理每个MeshSection可能EVF_BoneInfluence不同，用不同的VertexFactory。
+  * 对每个LOD的每个Section生成MeshBatch。
 
 这里最最重要的就是`FSkelotMeshGenerator::CreateUniformBuffer()`，创建了`FSkelotVertexFactoryParameters`的RHIBuffer，`FSkelotMeshGenerator::AllocateMeshBatch()`把这些数据传给了MeshBatch。这就和`FSkelotShaderParameters::GetElementShaderBindings()`对应上了。
 
-USkelotComponent::TickComponent()
-GameThread的数据同步主要从`UActorComponent::DoDeferredRenderUpdates_Concurrent()`开始。`USkelotComponent::SendRenderDynamicData_Concurrent()`，每帧更新。
-
-
-
-
-
---------------------------------------
-----------------------
-必须实现的结构体：
-FVertexFactoryInput VertexShader 的顶点数据输入
-FVertexFactoryIntermediates 会调用 GetVertexFactoryIntermediates(FVertexFactoryInput) 计算出这个中间结构体，保存中间数据，避免多次计算。Main里面不直接使用它。
-FVertexFactoryInterpolantsVSToPS LocalVertexFactoryCommon.ush 调用`VertexFactoryGetInterpolantsVSToPS()`计算出来。
-
-VF中必须实现的函数：
-FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput) // 计算中间数据
-float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates) // 计算出WorldPosition，没有材质中的顶点偏移
-half3x3 VertexFactoryGetTangentToLocal( FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates ) // 获取TangentToLocal变换
-FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float3 WorldPosition, half3x3 TangentToLocal) // 计算材质中需要的数据，FMaterialVertexParameters，MaterialTemplate.ush
-float4 VertexFactoryGetRasterizedWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float4 InWorldPosition)
-
-FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, FMaterialVertexParameters VertexParameters) // 计算插值到PS的数据
-
-
-
-
-
------------------------
-
-Vertex Factory 如何控制到Common base pass vertex shader的输入 ?
-
-Tessellations 是如何处理的(Hull, Domain stages) ? 
-
-Material Graph 最终是如何到HLSL Code中的?
-
-Deferred pass 是如何Work的?
-
-### A Second Look at Vertex Factories
-以LocalVertexFactory.ush和 BasePassVertexCommon.ush为例. 对比GpuSkinVertexFactory.ush.
-
-### Changing Input Data
-CPU端, 用FVertexFactory处理不同类型的Mesh有着不同的顶点数据传递给GPU.
-
-GPU端, 由于所有VertexFactories都用同样的VertexShader(至少BasePass是), 所以用一个通用命名的结构体FVertexFactoryInput来将这些数据传输到GPU. 每一种VertexFactory的shader factory中都定义自己的FVertexFactoryInput的具体实现, BasePassVertexCommon.ush中Include /Engine/Generated/VertexFactory.ush.这个文件在shader编译的时候会include到对应的*VertexFactory.ush, 其中就定义了对应的FVertexFactoryInput结构体.
-
-此前提到, 在实现一种Mesh的VertexFactory时, 还需要用一个宏将这个VertexFactory和一个Shader代码的文件关联起来, 这个文件
-```c++
-IMPLEMENT_VERTEX_FACTORY_TYPE_EX(FLocalVertexFactory,"/Engine/Private/LocalVertexFactory.ush",true,true,true,true,true,true,true);
-```
-就是上面提到的VertexFactory的HLSL版本, 其中定义了GPU端的顶点数据表示FVertexFactoryInput.
-
-这样, BasePassVertexShader就匹配上了顶点数据.
-
-不同的VertexFactories在VS和PS之间需要不同的数据插值 ?
-
-和FVertesFactoryInput的思路一样, BasePassVertexShader.usf中也会调用一些Generic function--GetVertexFactoryIntermediates, VertexFactoryGetWorldPostion, GetMaterialVertexParameters, 这些和FVertexFactoryInput一样都实现在对应的*VertexFactory.ush中.
-
-### Changing Output Data
-从VertexShader到PixelShader的输出数据, 同样的套路, 在BasePassVertexShader.usf, 用另一个Generically named struct FBasePassVSOutput, 它的实现同样也是看VertexFactory. 这里还有另一个障碍, 如果开启了Tessellation, 在Vertex Shader和Pixel shader之间还有两个阶段(Hull and Domain Stages), 这两个阶段需要不同数据(和仅仅是VS 到PS相比).
-
-在BasePassVertexCommon.ush中, 用宏定义改变FBasePassVSOutput的定义, 根据是否开启了Tessellation, 选择FBasePassVSToDS或FBasePassVSToPS.
-
-在最终的FBasePassVSOutput中, 有两个结构体成员FVertexFactoryInterpolantsVSToPS 和 FBasePassInterpolantsVSToPS(或DS版本), 其中, FVertexFactoryInterpolantsVSToPS是在具体的*VertexFactory.ush中定义的, 另外一个就是BasePassVertexShader通用的输出.
-
-在BasePassVertexShader中, 用不同的inlcude, 重定义结构体和一些函数抽象出通用代码, 而不依赖于具体的VertexFactory和Tessellation的开启.
-
-### BasePassVertexShader
-在BasePassVertexShader.usf中, 所做的就是计算BasePassInterpolants和VertexFactoryInterpolants的值. 而这些计算过程就有点复杂了. 有许多的特殊情况, 由preprocessor定义 选择声明不同的interpolators, 决定给哪些属性赋值.
-
-例如, 在BasePassVertexShader.usf中, 利用#if WRITES_VELOCITY_TO_GBUFFER , 根据这一帧和上一帧当前顶点世界坐标的差值计算出这个顶点的速度, 并存储在BasePassInterpolants变量中. 这意味着仅仅需要把Velocity写到GBuffer的Shader变体才会执行这个计算, 这减少了Shader stage之间的数据传输, 和计算量.
-
-
 # Reference：
-
+* [GPU Gems 3 Animated Crowd Rendering](https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-2-animated-crowd-rendering)
 * [skelot instanced skeletal mesh rendering](https://www.unrealengine.com/marketplace/en-US/product/skelot-instanced-skeletal-mesh-rendering)
 * [基于UE4的 Mobile Skeletal Instance - VS Shader](https://zhuanlan.zhihu.com/p/339031851)
-* https://www.zhihu.com/question/377037950/answer/1067763870
+* [一位大佬关于万人同屏的回答](https://www.zhihu.com/question/377037950/answer/1067763870)
 * [Shader Permutations](https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4)
-* https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161
-* https://medium.com/@lordned/unreal-engine-4-rendering-part-5-shader-permutations-2b975e503dd4
-* https://dev.epicgames.com/documentation/en-us/unreal-engine/debugging-the-shader-compile-process-in-unreal-engine
-* https://dev.epicgames.com/documentation/en-us/unreal-engine/shader-debugging-workflows-unreal-engine?application_version=5.4
-* [ShaderParamBind](https://zhuanlan.zhihu.com/p/485239547)
-* https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-2-animated-crowd-rendering
+* [Debugging the Shader Compile Process](https://dev.epicgames.com/documentation/en-us/unreal-engine/debugging-the-shader-compile-process-in-unreal-engine)
+* [Shader Debugging Workflows](https://dev.epicgames.com/documentation/en-us/unreal-engine/shader-debugging-workflows-unreal-engine?application_version=5.4)
+* [UE4 Shader Parameter Bind](https://zhuanlan.zhihu.com/p/485239547)
 * [Global Uniform Buffer](https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161)
+* [Creating a Custom Mesh Component in UE4 | Part 1: An In-depth Explanation of Vertex Factories](https://medium.com/realities-io/creating-a-custom-mesh-component-in-ue4-part-1-an-in-depth-explanation-of-vertex-factories-4a6fd9fd58f2)
+* [Creating a Custom Mesh Component in UE4 | Part 0: Intro](https://medium.com/realities-io/creating-a-custom-mesh-component-in-ue4-part-0-intro-2c762c5f0cd6)
+* [Global Uniform Shader Parameter(1)](https://medium.com/@solaslin/learning-unreal-engine-4-adding-a-global-shader-uniform-1-b6d5500a5161)
+* [Instancing and Order Independent Transparency in Total War: THREE KINGDOMS](https://gdcvault.com/play/1026177/Instancing-and-Order-Independent-Transparency)
+* [graphics-programming-overview-for-unreal-engine](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/graphics-programming-overview-for-unreal-engine)
+* [Skelot Instaned Skeleton Mesh Rendering](https://www.bilibili.com/video/BV1aogKesEYs)
