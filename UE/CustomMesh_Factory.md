@@ -1,6 +1,6 @@
 最近发现一个插件`Skelot`，实现了`Instaned Skeleton Mesh Rendering`。可以实现同时渲染几万个SkeletonMesh，而且每个实例都可以播着不同的动画，不同动画之间还能有混合过渡，[效果视频](https://www.bilibili.com/video/BV1aogKesEYs)。本质就是实现了一个SkeletonMesh版的`UInstancedStaticMesh`。要实现实例化绘制SkeletonMesh，通常需要实现自定义的`UPrimitiveComponent`和对应的`FPrimitiveSceneProxy`、`FVertexFactory`等。本文首先简要介绍实现自定义`UPrimitiveComponent`需要的基本操作，然后分析`Skelot`渲染方面的实现细节。
 
-# FLocalVertexFactory
+# 1. FLocalVertexFactory
 
 不同的VertexFactory实现了不同的顶点处理方式，即如何从VertexShader中传进来的Vertex数据得到VS输出给PS的顶点数据。通常，对于StaticMesh，直接把模型的VertexBuffer传给GPU，直接读顶点数据中的Position进行MVP变换即可，复杂一点，如果有顶点偏移，再加上顶点偏移，这就是`UStaticMeshComponent`实现的Mesh渲染方式。此外，如果是`USkeletalMeshComponent`这种骨骼动画的渲染，除了普通Mesh的顶点数据和处理逻辑，在顶点中还需要传入影响当前顶点的骨骼Index和对应的蒙皮权重，然后还需要一个额外的Buffer，传入当前帧的Pose，即每个骨骼对应的位置信息。渲染时，在VertexShader中根据这些数据计算出顶点的最终位置。这种顶点数据和处理逻辑的差异就是由`FLocalVertexFactory`处理的。而`FLocalVertexFactory`就是`UStaticMeshComponent`使用的顶点工厂，后面以它为例分析VertexFactory的工作机制。
 
@@ -105,7 +105,7 @@ UStaticMesh::PostLoad()
 
 至此，一个`UStaticMesh`的`FLocalVertexFactory`就初始化好啦。从`FStaticMeshRenderData`这里开始，把每一级LODResource的Mesh数据分开存，且一个LODResource对应一个VertexFactory，在GameThread，先加载好`FStaticMeshRenderData`中的原始数据，然后调用它的初始化创建GPU资源。对LODResource中的每一个Buffer都调用它的初始化方法，创建渲染线程的命令，从对应的原始数据创建RHIBuffer，并上传数据，然后用LODResource初始化对应的VertexFactory，根据有的VertexBuffer和里面的格式，引用这些Buffer和对应的SRV，创建对应的`VertexDeclaration`，将来Renderer会通过`FVertexFactory::GetStreams()`使用它。最后再创建VertexFactory需要的UniformBuffer。
 
-# Vertex Shader
+# 2. Vertex Shader
 `FLocalVertexFactory`最后都会编译出对应的VertexShader，那这一步又是怎么完成的呢？
 
 一个VertexFactory对应的的HLSL文件中通常只需要实现一些函数和结构体即可，在`BasePassVertexShader.usf`中用了很多它这个文件和它直接Include的文件中并没有定义的函数和结构体，我们的VertexFactory对应的HLSL文件，例如`LocalVertexFactory.ush`，就需要定义这些函数和结构体，编译时会把它们当成Include文件在`BasePassVertexShader.usf`中展开。可以看看函数`VertexFactoryGetInterpolantsVSToPS()`，结构体`FVertexFactoryInterpolantsVSToPS`。
@@ -142,7 +142,7 @@ UStaticMesh::PostLoad()
 
 用一系列枚举表明这个VertexFactory支持的功能。这个宏还通过传入的类名，拼接出`FLocalVertexFactory`实现的一些静态方法，或作为模板参数生成一些对`VertexFactory.h`中的静态函数的调用，都作为函数指针传给`FVertexFactoryType`，还有ush文件路径，`FVertexFactoryType`就有了这个VertexFactory的几乎所有信息，后续的编译就全靠它了。
 
-## 参数传递
+## 2.1 参数传递
 确定了ush文件后，我们还需要确定向VertexShader传递什么参数？比如SplineMesh需要传入Spline的开始点，结束点，Tangent，Scale等等，参考`SplineMeshShaderParams.h`。
 
 我们可以继承`FVertexFactoryShaderParameters`，实现向VertexShader中绑定数据。
@@ -159,7 +159,7 @@ UStaticMesh::PostLoad()
 
 这里用`FLocalVertexFactory`类型和SF_Vertex就确定了特化的ParamterTraits结构体，然后就只能调用到`FLocalVertexFactoryShaderParameters`的实现中。这也说明了一种顶点工厂的一个着色阶段只能由一个这种GlobalUniformBuffer的绑定。
 
-### 绑定Global Shader Parameter
+### 2.1.1 绑定Global Shader Parameter
 
 如果想绑定一个UniformBuffer，首先定义UniformBuffer的结构：
 
@@ -175,7 +175,7 @@ UStaticMesh::PostLoad()
 
 ![VF_IncludeGlobalShaderParameter](../assets/UE/VF_IncludeGlobalShaderParameter.png)
 
-### 在FVertexFactoryShaderParameters中绑定参数
+### 2.1.2 在FVertexFactoryShaderParameters中绑定参数
 我们还可以在`FVertexFactoryShaderParameters`的成员变量中声明Shader参数。例如在`FLocalVertexFactoryShaderParameters`中：
 
 ![VF_LocalVFParam](../assets/UE/VF_LocalVFParam.png)
@@ -198,13 +198,13 @@ UStaticMesh::PostLoad()
 
 这里的数据类型要与HLSL中使用的一致。
 
-# 实现InstancedSkeletalMesh
+# 3. 实现InstancedSkeletalMesh
 
 如何组织需要的数据？
 
 Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把Skeleton和对应的动画Sequence配置在一起，还有对应的模型。然后直接在`USkelotAnimCollection`中预处理动画和模型数据。
 
-## 动画数据预处理
+## 3.1 动画数据预处理
 预先计算好所有Sequence在绑定空间的最终变换，存到一个巨大TransformBuffer中。这里的动画数据可以直接用`UAnimSequenceBase`的方法读取。对每个Sequence，还可以配置它能混合到什么Sequence，以及混合的时长。然后进行预处理，从起始Sequence中的每一帧到目标Sequence的混合Pose，只用生成配置的时长即可。假设我们一个Skeleton有三个Sequence，其中，S1可以混合到S2和S3，混合时长为0.2s。在生成的AnimationBuffer中，前面三个Sequence的动画数据依次排列，且Sequence自己记下在生成的Buffer中的开始位置。然后开始生成混合帧，如果动画都是60帧/s的，混合0.2s就是要混合前12帧，则从S1的每一帧开始，都要混合S2的前12帧，这里也是混合好后，计算好绑定空间的变换矩阵。这里每个混合都要记下自己有多少帧，从Buffer中的什么位置开始的。最终生成的AnimationBuffer的布局如下：
 
 ```
@@ -225,7 +225,7 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 这里需要把预计算的动画`Transform`数据存在`FStaticMeshVertexDataInterface* Transforms`中，还要实现序列化。最重要的是实现`InitRHI()`，在渲染线程执行，创建对应的`FBufferRHIRef`。编辑器下预计算好动画数据后，就可以立即发送渲染命令，执行`AnimationBuffer.InitResource(RHICmdList)`。
 
-## 模型数据处理
+## 3.2 模型数据处理
 
 支持骨骼动画的模型中，每个顶点还要保存受影响的BoneIndex和对应权重。这些数据在引擎的`USkeletalMesh`中就有，我们可以直接从中读取，然后转换成我们需要的格式，同样也要处理LOD。这里的思路与前面分析过的`UStaticMesh`很相似。模型数据我们配置的是`USkeletalMesh`，讲道理里面顶点也有BoneIndex和权重，直接用不就行了？UE的BoneIndex和蒙皮权重都是uint16：
 
@@ -237,7 +237,7 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 其它的诸如顶点位置，纹理坐标之类的数据就还是用`USkeletalMesh`里面原来的就行了。在构建Animation的同时构建这份数据，注意，这里只是构建好CPU端的数据，并没有初始化RHIBuffer。
 
-## 顶点工厂初始化
+## 3.3 顶点工厂初始化
 
 至此，CPU端的数据就处理好了，包括动画和顶点数据，这些数据都可以直接序列化保存下来，这样打包后就不用再进行这些处理。游戏开始时，通常在加载`USkelotAnimCollection`出来后就要初始化GPU端的数据，需要发送渲染线程命令，到渲染线程执行：
 
@@ -269,7 +269,7 @@ Skelot里面实现了一个继承自UDataAsset的类USkelotAnimCollection，把S
 
 ![VF_SkelotVertexFactoryResource](../assets/UE/VF_SkelotVertexFactoryResource.jpg)
 
-## VertexShader参数
+## 3.4 VertexShader参数
 
 除了顶点权重数据，我们还需要把一些数据传给VertexShader：
 
@@ -307,7 +307,40 @@ UE会帮我们把`SkelotVertexFactory.ush`中的代码替换成实际的名字�
 
 ![VF_ComplieResult](../assets/UE/VF_ComplieResult.png)
 
-## FSkelotProxy构建MeshBatch
+## 3.5 SkelotVertexFactory.ush的实现
+首先看看`FVertexFactoryInput`，这与我们在C++中定义的顶点数据格式和绑定位置要一一对应。
+
+![VF_HLSLFactoryInput](../assets/UE/VF_HLSLFactoryInput.png)
+
+对于BlendIndices，我们在C++端传入的是四个8位uint，并声明格式为`DXGI_FORMAT_R8G8B8A8_UINT`，在HLSL中声明的接收类型为uint4，表示四个32位uint，可以正常接收4个8位uint。
+
+![VF_BindPosition](../assets/UE/VF_BindPosition.png)
+
+而BoneWeights，在C++端也是用4个8位uint表示的，且我们声明的格式为`DXGI_FORMAT_R8G8B8A8_UNORM`这会自动把8位uint归一化到`[0, 1]`。在HLSL这一端也就可以用`float4`接收。绑定的位置是`ATTRIBUTE3`和`ATTRIBUTE4`。
+
+另一个重要的结构体是`FVertexFactoryIntermediates`，和一个对应的函数`GetVertexFactoryIntermediates(FVertexFactoryInput Input)`，这个结构体的作用是定义一些重要的数据，并通过这个函数从顶点输入和VertexShader的各种输入Buffer计算得到这些数据，避免后面多次用到时重复计算。在BasePassVertexShader.usf中的Main最前面就会调用这个函数得到中间结果，后续以`FVertexFactoryIntermediates`为参数的函数被调用时也是传的这里计算的结果。
+
+![VF_GetVFIntermediates](../assets/UE/VF_GetVFIntermediates.png)
+
+这里关键的是把当前实例的Transform、AnimationBlendMatrix计算出来。这里先用`GetInstanceDataFull()`从传入的Buffer中获取当前Instance的固定信息：
+
+![VF_GetInstanceDataFull](../assets/UE/VF_GetInstanceDataFull.png)
+
+主要是获取当前实例当前帧的Transform和AnimationFrameIndex和上一帧的PreTransform和PreAnimationFrameIndex，之所以要有上一帧的这些信息，是因为最终我们还需要实现一个获取上一帧位置的函数`VertexFactoryGetPreviousWorldPosition()`，这个函数可能在BassPassVertexShader中使用。所以每个实例的TransformBuffer和AnimationFrameindicesBuffer在CPU端构建时就要把上一帧的位置和动画Index写进来。
+
+得到了AnimationFrameIndex后，就可以计算动画的变换矩阵了，用`CalcBoneMatrix()`实现：
+
+![VF_CalcBoneMatrixNew](../assets/UE/VF_CalcBoneMatrixNew.png)
+
+用影响顶点的骨骼数量的宏，实现分别用1~4个骨骼的蒙皮矩阵计算。上一帧的`PreviousBlendMatrix`也是这样计算。
+
+然后还要实现`VertexFactoryGetWorldPosition()`，在这里返回蒙皮后当前顶点的世界坐标位置，BasePassVertexShader就是通过这个函数获得世界坐标位置的：
+
+![VF_SkinWorldPosition](../assets/UE/VF_SkinWorldPosition.png)
+
+这样我们就正确计算出了世界坐标位置了，而且BasePassVertexShader也能够正确拿到它。
+
+## 3.6 FSkelotProxy构建MeshBatch实现渲染
 在游戏中，如何开始渲染呢？这里的思路和InstancedStaticMesh几乎一样。首先继承`UMeshComponent`实现一个GameThread的`USkelotComponent`，向外提供添加、删除实例，更新实例的Transform，为某个Instance播放动画等操作。还需要在Tick里更新每个实例的动画状态，即播放到哪一帧，然后调用`MarkRenderDynamicDataDirty()`，随后在GameThread的每一帧的末尾会调用`USkelotComponent::SendRenderDynamicData_Concurrent()`，在其中构建所有需要的渲染数据，包括所有Instance播放的AnimationFrameIndex数组，所有Instance的Transforms等数据，最后再用一个渲染命令把数据发到RenderThread，更新`FSkelotProxy`的数据：
 
 ![VF_GameThreadUpdateData](../assets/UE/VF_GameThreadUpdateData.png)
@@ -333,7 +366,10 @@ UE会帮我们把`SkelotVertexFactory.ush`中的代码替换成实际的名字�
 
 这里最最重要的就是`FSkelotMeshGenerator::CreateUniformBuffer()`，创建了`FSkelotVertexFactoryParameters`的RHIBuffer，`FSkelotMeshGenerator::AllocateMeshBatch()`把这些数据传给了MeshBatch。这就和`FSkelotShaderParameters::GetElementShaderBindings()`对应上了。
 
+--------------------------------------------
+
 # Reference：
+
 * [GPU Gems 3 Animated Crowd Rendering](https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-2-animated-crowd-rendering)
 * [skelot instanced skeletal mesh rendering](https://www.unrealengine.com/marketplace/en-US/product/skelot-instanced-skeletal-mesh-rendering)
 * [基于UE4的 Mobile Skeletal Instance - VS Shader](https://zhuanlan.zhihu.com/p/339031851)

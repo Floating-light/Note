@@ -39,3 +39,7 @@ dumpshaderstats  //  输出Shader统计信息到ShaderStats-2020.12.15-13.18.10.
 rhi.DumpMemory   // 打印RenderTarget的内存信息
 
 DumpAvailableResolutions  // 打印当前可使用的屏幕分辨率和刷新频率
+
+# Gpu Scene
+
+* Scene Uniform Buffer : https://www.bilibili.com/video/BV1fM4m1U7Tp
