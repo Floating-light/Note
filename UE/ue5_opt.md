@@ -1,4 +1,6 @@
 Optimizing UE5
+https://linktr.ee/epicmattoztalay?utm_source=qr_code
+
 # Nanite
 https://zhuanlan.zhihu.com/p/687141143
 
@@ -7,6 +9,7 @@ https://www.youtube.com/watch?v=xSUV8BahmI0&list=WL&index=3&t=272s
 Rethinking Performance Paradigms for High-Quality Visuals - Part 1
 
 https://www.youtube.com/watch?v=Cb63bHkWkwk&t=11963s
+1:50:26 Lumen 
 
 Nanite: 
 
@@ -107,3 +110,91 @@ Radiance injection, Caching:
   * TemporalReprojection
 5. Lumen Reflection
 
+# Lumen
+
+https://www.youtube.com/watch?v=Cb63bHkWkwk&t=11963s
+1:50:26 Lumen 
+
+Considerations
+- SWRT vs HWRT
+  - SWRT fast,good when you've got a lot of Kit bash stuff that's overlapping instances, 
+  - HWRT high quality, a lot of shinned meshes that might be significantly affecting GI and mirror-like Reflections
+  - 性能目标：
+  - 30FPS ~8ms HW, for lighting and refections, Console
+  - 60FPS ~4ms SW,
+- Lumen Scene Lighting 
+- Lumen Screen Probe Gather
+- Lumen Reflections
+- Async Compute
+- Reponsiveness
+- Mesh and Scene Construction
+
+HWRT 
+- BVH Traces
+- Rebuild TLAS every frame
+- - Instance Counts, Overlaps
+- Trace Performance
+- Features:
+- - Hit Lighting
+- - Far Field 
+
+SWRT
+- DF Traces
+- GDF(Global distance field) Build 
+- Independent of instance count 
+
+Action Items
+- HWRT
+- - Instance Counts
+- - Instanc Overlap
+- SWRT
+- - Affects DF 
+- Roughness to Trace 
+
+
+ Matt Oztalay
+
+ # Virtual Shadow Map
+ Elevator Pitch 
+
+ - High res geo? High res shadows!
+ - Don't render all the shadows 
+ - Virtualize shadow pages
+ - Cache results
+ - At ideal resolution
+
+Considerations
+- Shadow depths
+- - Cache Invalidations
+- - Geometry
+- Shadow Projection 
+- - Ray Count
+- - Penumbra Size
+
+Cache Invalidations
+- Moving Camera 
+- Moving Lights
+- Moving Objects
+
+StaticMeshComponent -> Shadow Cache invalidation Behavior
+* 控制要不要在发生顶点偏移时InvalidShadow
+* 可以在Runtime下更新
+
+NaniteMesh被分为Cluster，可以以Cluster为单位绘制需要的区域。但是，非Nanite就只能整个对象都要绘制一遍。
+
+
+r.Shadow.Virtual.OnePassProjection 1 多个光源也只有一次ShadowProjection
+r.Shadow.Virutal.Visualize.LightName 
+
+r.Shadow.Virutal.Visualize.Layout 2 
+r.Shadow.Virutal.Visualize.Advanced 1
+
+
+Action Items
+- Shadow Depths 
+- - Cache Invalidations
+- Shadow Project
+- - Soft Shadows, Overlaps
+
+stat scenerendering
+# World Partition
