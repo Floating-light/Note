@@ -47,11 +47,18 @@ AddStaticMesh, StaticPath
 ![RM_StaticPass](../assets/UE/RM_StaticPass.png)
 
 初始化View，计算Visibiliy，搜集可见元素的Mesh。
+```
 FDeferredShadingSceneRenderer::BeginInitViews()
   FVisibilityTaskData::ProcessRenderThreadTasks()
     FVisibilityViewPacket::BeginInitVisibility()
       如果场景种FPrimitiveSceneInfo太多，这里会创建超级多的数据，用于计算每个Primitive的Visibility
       每个Primitive至少循环处理一次
+      UpdateAlwaysVisible() 处理标记为总是可见的对象
+      SceneVisibility.cpp FrustumCull() 处理所有Primitive的视锥剔除
+        Scene.PrimitiveBounds[Index] 半径小于0直接剔除
+        FPrimitiveSceneInfo::AddToScene()中初始化为Proxy->GetBounds()
+
+```
 
 void FRelevancePacket::ComputeRelevance(FDynamicPrimitiveIndexList& DynamicPrimitiveIndexList)
 对所有可见的Primitive计算相关性，
@@ -61,3 +68,42 @@ void FRelevancePacket::ComputeRelevance(FDynamicPrimitiveIndexList& DynamicPrimi
 
 
 FNaniteMeshProcessor
+
+# Primitive的Transform和Bound的更新
+```c++
+UActorComponent::DoDeferredRenderUpdates_Concurrent()
+		if(bRenderTransformDirty)
+      void UPrimitiveComponent::SendRenderTransform_Concurrent()
+        void FScene::UpdatePrimitiveTransformInternal(T* Primitive)
+          ENQUEUE_RENDER_COMMAND Scene->UpdatePrimitiveTransform_RenderThread()
+            添加到FScene::UpdatedTransforms
+```
+随后在FScene::Update中处理
+* FPrimitiveSceneProxy::SetTransform()
+
+# 移除Primitive
+实际也是在FScene::Update中delete的。
+
+![RM_DeletePrimitive](../assets/UE/RM_DeletePrimitive.png)
+
+实际是先把要移除的Primitive添加到RemovedPrimitiveSceneInfos中。通过FScene::RemovePrimitiveSceneInfo_RenderThread()。
+
+
+从GameThread触发：
+```c++
+void UActorComponent::DestroyRenderState_Concurrent()
+void UPrimitiveComponent::DestroyRenderState_Concurrent()override
+  FScene::RemovePrimitive(UPrimitiveComponent* Primitive)
+    FScene::BatchRemovePrimitivesInternal(TArrayView<T*> InPrimitives)
+      ENQUEUE_RENDER_COMMAND FScene::RemovePrimitiveSceneInfo_RenderThread()
+```
+
+GameThread多个地方会触发DestroyRenderState：
+```
+UActorComponent::ExecuteUnregisterEvents()
+UActorComponent::RecreateRenderState_Concurrent()
+```
+
+UStaticMesh的IndexBuffer、VertexBuffer创建、释放时机：
+* 创建，加载资源好了之后就从原始数据初始化各种Buffer、VertexFactory，发送渲染命令到RenderThread创建RHIBuffer，Resource->InitResource(RHICmdList);
+* 释放， BeginDestroy的时候，发命令到RenderThread调用Resource->ReleaseResource();

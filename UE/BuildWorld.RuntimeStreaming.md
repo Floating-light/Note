@@ -190,7 +190,7 @@ DataLayer有两种，普通的DataLayer和ExternalDataLayer，对应由`UDataLay
 
 `OwningWorld`就一定是当前在Play的主UWorld。ULevel也是这样实现的：
 
-![SS_Actor_GetWorld](../assets/UE/SS_Actor_GetWorld.png)
+![SS_PlayMainWorld](../assets/UE/SS_PlayMainWorld.png)
 
 在`AWorldDataLayers`上有个开关`bUseExternalPackageDataLayerInstances`，可以使`DataLayerInstances`保存在单个文件中，而不是`AWorldDataLayers`的文件中，这减少了修改`DataLayerInstances`时发生冲突的可能性。
 
