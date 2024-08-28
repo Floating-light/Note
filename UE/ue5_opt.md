@@ -71,3 +71,39 @@ Considerations
   * Cluster Size
   * Long， Thin Tris
   * Disk Size vs. Cooked Size
+
+Lumen:
+
+Ray Tracing - 软光追，MeshSDF,GlobalSDF。硬件光追。
+
+Radiance injection, Caching: 
+* Cards，Lumen捕获光线的位置
+* Mesh Card,Rutnime捕获，Mesh遮挡，Mesh的材质信息：Albedo,Normal,Depth,Emissive
+  * Atlas ，Surface Cache，4096x4096
+  * 显存压力大
+![](https://pic2.zhimg.com/80/v2-27ceeb2c02e7ca70807ebb0c6453a985_1440w.webp)
+* Indirect Light，Radiance cache
+  * VoxelLighting 给下一帧
+  * 使用上一帧的VoxelLighting得到Indirect Lighting。每帧逐渐积累。
+  * 加上Surface cache的DirectLighting 得到这一帧当前lighting。
+
+1. Lumen scene update 
+   * Mesh card capture
+   * CopyCardsToSurfaceCache(Alas)
+   * BuildCardUpdateContext
+2. Lumen scene direct lighting 
+   * CullDirectLightingTiles
+   * CombineLighting 
+3. VoxelLigthing3D
+   * UpdateVoxelVisBufferN with clipmap
+   * TranslucencyVolumenLighting
+4. LumenScreenProbeGather
+  * UniformPlacement+AdaptivePlacement
+  * RenderLumenScreenProbeGather
+  * TraceScreen
+  * TraceMeshSDF
+  * TraceVoxels
+  * CompositeTraces
+  * TemporalReprojection
+5. Lumen Reflection
+

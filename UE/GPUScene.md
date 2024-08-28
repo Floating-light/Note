@@ -62,24 +62,54 @@ DrawDynamicMeshPassPrivate()
 
 # Static Mesh 渲染流程：
 Primitive通过ENQUEUE_RENDER_COMMAND发送渲染线程命令，FScene::PrimitiveSceneInfo_RenderThread()，添加到FScene的成员变量AddedPrimitiveSceneInfos中，在下一次渲染开始的FScene::Update()中处理。
+```c++
+FScene::Update()
+	//对新加的Primitive
+	FPrimitiveSceneInfo::AddStaticMeshes()
+		Proxy->DrawStaticElements(&BatchingSPDI)
+		dithered LOD
+	FPrimitiveSceneInfo::CacheMeshDrawCommands(this, SceneInfosWithStaticDrawListUpdate);
+	* 用一个DrawContext FCachedPassMeshDrawListContextImmediate DrawListContext(*Scene);
+	* 对每个FPrimitiveSceneInfo，的每个StaticMeshes，搜集起来处理
+		* 对每个Pass - EMeshPass::Num，创建CreateMeshPassProcessor
+		* 对每个MeshBatch调用Processor->AddMeshBatch()
+	* 最终每个StaticMeshes，创建与EMeshPass::Num相同数量的Command，在StaticMeshCommandInfos。
+	* 最终是存在了FScene的成员变量上FCachedPassMeshDrawList CachedDrawLists[EMeshPass::Num];
+```
+[只有在绘制状态不每帧都改变，且可以在AddToScene内设置所有着色器绑定时，才能缓存的绘制命令。](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/mesh-drawing-pipeline-in-unreal-engine?application_version=5.3#%E7%BC%93%E5%AD%98%E7%9A%84%E7%BD%91%E6%A0%BC%E4%BD%93%E7%BB%98%E5%88%B6%E5%91%BD%E4%BB%A4)
 
-FPrimitiveSceneInfo::CacheMeshDrawCommands(this, SceneInfosWithStaticDrawListUpdate);
-* 对每个FPrimitiveSceneInfo，的每个StaticMeshes，搜集起来处理
-  * 每个StaticMeshes，创建与EMeshPass::Num相同数量的Command，在StaticMeshCommandInfos。
-* 对每个Pass - EMeshPass::Num，创建CreateMeshPassProcessor
-  * 对每个MeshBatch调用Processor->AddMeshBatch
 
 # DynamicMesh渲染流程
 
+// 先处理剔除，对所有通过剔除的Mesh进行
 // 对所有GatherDynamicMesh进行操作
-FVisibilityTaskData::SetupMeshPasses()
-FParallelMeshDrawCommandPass::DispatchPassSetup() // 对每个Pass进行处理，EMeshPass::Num
+FVisibilityTaskData::SetupMeshPasses()//拿到所有可见的DynamicMesh
+FSceneRenderer::SetupMeshPass()//对每一个Pass创建Processor
+	// InstanceCullingContext，DynamicMeshElements
+	// 对每个Pass进行处理，EMeshPass::Num
+	FParallelMeshDrawCommandPass::DispatchPassSetup(Processor) 
+	FMeshDrawCommandPassSetupTask::AnyThreadTask()
+	GenerateDynamicMeshDrawCommands() // 构建FDynamicPassMeshDrawListContext
+			PassMeshProcessor->SetDrawListContext(&DynamicPassMeshDrawListContext);
+			PassMeshProcessor->AddMeshBatch(*MeshAndRelevance.Mesh, BatchElementMask, MeshAndRelevance.PrimitiveSceneProxy);
+			FBasePassMeshProcessor::TryAddMeshBatch()
+				FBasePassMeshProcessor::Process(
+				FMeshPassProcessor::BuildMeshDrawCommands
+					往DrawListContext添加FMeshDrawCommand，	FMeshCommandOneFrameArray& DrawList;
 
-FMeshPassProcessor::BuildMeshDrawCommands
 
-直接看有没有进BassPass： 
-FBasePassMeshProcessor::TryAddMeshBatch()
+FViewInfo::(FParallelMeshDrawCommandPass)ParallelMeshDrawCommandPasses所有Pass对应的FMeshDrawCommandPassSetupTask，包含所有FMeshDrawCommand。
 
-最终都要走到提交这里：
-FMeshDrawCommand::SubmitDraw()
-FMeshDrawCommand::SubmitDrawEnd()
+FDeferredShadingSceneRenderer::RenderBasePassInternal()
+  //对所有View
+  FParallelMeshDrawCommandPass::DispatchDraw()
+	FDrawVisibleMeshCommandsAnyThreadTask
+		FInstanceCullingContext::SubmitDrawCommands()
+		FMeshDrawCommand::SubmitDraw()
+		FMeshDrawCommand::SubmitDrawEnd()
+  Nanite::DrawBasePass()//然后Nanite
+
+# reference 
+* https://zhuanlan.zhihu.com/p/657669302
+* https://zhuanlan.zhihu.com/p/651173532
+* 渲染管线原理机制源码剖析 https://zhuanlan.zhihu.com/p/641367884

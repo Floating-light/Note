@@ -43,3 +43,6 @@ DumpAvailableResolutions  // 打印当前可使用的屏幕分辨率和刷新频
 # Gpu Scene
 
 * Scene Uniform Buffer : https://www.bilibili.com/video/BV1fM4m1U7Tp
+
+# Shader resource
+[The book of shaders](https://thebookofshaders.com/)

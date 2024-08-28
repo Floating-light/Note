@@ -59,7 +59,7 @@ Reference:
 
 ULandscapeSubsystem : public UTickableWorldSubsystem，ALandscape
 ULandscapeComponent，FLandscapeComponentSceneProxy
-FLandscapeComponentSceneProxy
+
 
 * Section是LOD计算、剔除的基本单位。
 * HeightMap一样的情况下，也就是整体地形大小一样的情况下，

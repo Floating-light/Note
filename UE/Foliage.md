@@ -39,4 +39,11 @@ G:\UnrealEngine5\Engine\Source\Runtime\Foliage\Private\ProceduralFoliageTile.cpp
       
       
       
-  
+# Procedural grass 
+参考《对马岛之魂》程序化草地，支持风场，交互，效果好性能也好.
+* [虚幻引擎5 对马岛之魂 GPU Compute Shader](https://www.bilibili.com/video/BV19v421v7zY)
+* https://zhuanlan.zhihu.com/p/671157323
+* https://www.youtube.com/watch?v=Ibe1JBF5i5Y&t=530s
+* https://zhuanlan.zhihu.com/p/647997882
+* [Procedural Grass](https://outerra.blogspot.com/search/label/grass)
+* [GDC-Procedural Grass in 'Ghost of Tsushima'](https://gdcvault.com/play/1027033/Advanced-Graphics-Summit-Procedural-Grass)
