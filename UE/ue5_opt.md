@@ -198,3 +198,7 @@ Action Items
 
 stat scenerendering
 # World Partition
+
+Other:
+
+* Listenserver，Steam P2P，连续SeamlessTravel后，Client断开连接。在连续SeamlessTravel后，因为Client释放了一些GUID，但Server没有释放它，导致随后Server认为这个GUID仍然是有效的，但在Client上已经找不到，导致CLient因为解析不了这个GUID而强制断开连接。
