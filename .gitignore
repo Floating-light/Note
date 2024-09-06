@@ -5,8 +5,15 @@ seeds
 .next
 pods/service-connections
 
-# C++ 
+# C++
 *.exe
 *.ilk
 *.obj
 *.pdb
+
+_site
+.sass-cache
+.jekyll-cache
+.jekyll-metadata
+vendor
+Gemfile.lock
