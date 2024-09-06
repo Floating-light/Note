@@ -213,11 +213,19 @@ Xbox Series S 节约1ms。
 "Lumen场景光照（Lumen Scene Lighting）"在每个表面缓存图块上只选择一小部分最重要的光源，这使其性能不太容易受到场景中光源总数的影响。每个图块的光源数量可由 r.LumenScene.DirectLighting.MaxLightsPerTile 控制。
 
 三个
+
+Lumen场景光照的性能取决于每帧更新的表面缓存的比例，此外还取决于半透明全局光照体积的分辨率。
 - Lumen Scene Lighting 0.8 对表面缓存光照求值
+  - r.LumenScene.DirectLighting.UpdateFactor
+  - r.LumenScene.Radiosity.UpdateFactor
+
+全局光照性能取决于内部渲染分辨率和屏幕探头追踪分辨率。
 - Lumen Screen Probe Gather 2.88 用于对漫反射全局光照和粗糙反射以及半透明全局光照求值。
   - r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution 16 32 32 
   - r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget 300 300 1000
   - r.Lumen.ScreenProbeGather.DownsampleFactor 32 16 8 
+
+Lumen反射（Lumen Reflections） 性能取决于专用反射光线的数量。只有粗糙度值低于阈值的像素才会被追踪。影响性能的另一个重要因素是内部渲染分辨率和反射分辨率。
 - Lumen Reflections 1.77 用于对光滑表面上的专用反射光线求值。
   - r.Lumen.Reflections.MaxRoughnessToTrace
   - r.Lumen.Reflections.MaxRoughnessToTraceClamp

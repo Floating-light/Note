@@ -16,6 +16,7 @@
 * 修改引擎源码，实现Runtime下修改地形，实现动态生成建筑时平滑地形、添加凹陷，弹坑等功能，包括地形材质、地形碰撞、Grass、导航网格在内都能正常发生改变。
 * 扩展、修改引擎编辑器功能，加速美术、策划的工作。
   * 自动合批Instanced，runtime 随机生成植被，Blender风场动画Texture，
+  * 资产验证，命名，设置（Nanite > 1W 面 没有LOD）
 * 负责持续监控并优化游戏性能，为性能热点问题提供解决方案。
   * UnrealInsights，PIX，NSight Graphics，RenderDoc
   * 复杂碰撞，TriMesh，物理内存2G
