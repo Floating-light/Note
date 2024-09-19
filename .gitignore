@@ -11,9 +11,16 @@ pods/service-connections
 *.obj
 *.pdb
 
+# jekyll
 _site
 .sass-cache
 .jekyll-cache
 .jekyll-metadata
 vendor
 Gemfile.lock
+
+# node.js
+node_modules
+.temp
+.cache
+${APPDATA}

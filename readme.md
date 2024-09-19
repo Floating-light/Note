@@ -1,6 +1,6 @@
 ---
 id: 8ae865spua67os02ak9wirc
-title: CG
+title: Blog
 desc: 'Computational Geometry'
 updated: 1714615718087
 created: 1714614686413
