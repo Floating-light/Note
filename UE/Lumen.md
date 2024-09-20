@@ -1,12 +1,19 @@
 Renference:
 * [最强分析 ｜一文理解Lumen及全局光照的实现机制](https://zhuanlan.zhihu.com/p/643337359)
 * [UE5 Lumen 源码解析（一）原理篇](https://zhuanlan.zhihu.com/p/499713106)
-* 
+# GI
+* [Realistic Image synthesis using photon mapping](https://graphics.stanford.edu/~henrik/papers/book/)
+* [A Practical Guide to Global Illumination using Photon Maps - Siggraph 2000 course](https://graphics.stanford.edu/courses/cs348b-00/course8.pdf)
 # SDF
 * https://iquilezles.org/articles/distfunctions/
 * [Raytracing and Raycasting with Signed Distance Functions](https://ben.land/post/2022/08/15/raycasting-raytracing-sdf/)
 * [Signed Distance Fields Using Single-Pass GPU Scan Conversion of Tetrahedra](https://developer.nvidia.com/gpugems/gpugems3/part-v-physics-simulation/chapter-34-signed-distance-fields-using-single-pass-gpu)
 * [UE5 Mesh Distance Field](https://dev.epicgames.com/documentation/en-us/unreal-engine/mesh-distance-fields-in-unreal-engine?application_version=5.0)
+* [SDF - Rendering](https://kosmonautblog.wordpress.com/2017/05/01/signed-distance-field-rendering-journey-pt-1/)
+* [Siggraph2015 course](https://advances.realtimerendering.com/s2015/index.html)
+  * [Epic - Dynamic Occlusion with Signed Distance Fields](https://advances.realtimerendering.com/s2015/DynamicOcclusionWithSignedDistanceFields.pdf)
+  * 有关UE的SDF AO的一些细节
+
 ## UE5 Mesh SDF
 把空间体素化(Volume texture)，每个点存的是它到最近的表面的距离，点在Mesh外则为正值，在Mesh内则为负值。
 * Sphere tracing，从一个点出发，知道了离自己最近的Surface的距离（以当前点为中心，距离为半径的球范围内都没有别的Surface），可以直接向前进这么多距离，快速求交。

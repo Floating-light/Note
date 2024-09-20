@@ -50,5 +50,25 @@
     },
     "pasteImage.path": "${projectRoot}/assets/${currentFileNameWithoutExt}",
     "MarkdownPaste.path": "${workspaceRoot}/assets/${relativeFileDirname}/",
-    "MarkdownPaste.nameBase": "${selectedText|image}"
+    "MarkdownPaste.nameBase": "${selectedText|image}",
+    "latex-workshop.latex.recipes": [
+        {
+          "name": "xelatex",
+          "tools": [
+            "xelatex"
+          ]
+        }
+      ],
+      "latex-workshop.latex.tools": [
+        {
+          "name": "xelatex",
+          "command": "xelatex",
+          "args": [
+            "-synctex=1",
+            "-interaction=nonstopmode",
+            "-file-line-error",
+            "%DOC%"
+          ]
+        }
+      ]
 }
