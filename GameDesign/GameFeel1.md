@@ -11,7 +11,7 @@
 
 三个要素:
 * 实时操控（real-time control）
-* 模拟空间（simulated space
+* 模拟空间（simulated space）
 * 润色（polish）
 
 其中，`实时操控`是指通过从玩家到游戏不间断的命令流，对运动的角色进行精确、持续的操作。
