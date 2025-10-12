@@ -45,6 +45,15 @@ __This text will be bold__
   <img alt="LOGO" src="./assets/MiniEngine/DescriptorHandleInc.png" height="471.5" width="606.5" />
 </p>
 
+引用：
+
+terst[^1][^2][^3]
+
+[^1]: [Documentation Montage](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/animation-montage-in-unreal-engine)
+
+[^2]: [Documentation Slot Node](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/animation-slots-in-unreal-engine)
+[^3]: [Documentation Blend Node](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/animation-blueprint-blend-nodes-in-unreal-engine#layeredblendperbone)
+
 ## D3D12
 
 * https://developer.nvidia.com/dx12-dos-and-donts

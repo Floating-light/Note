@@ -1,0 +1,48 @@
+
+## LeftHandPose_OverrideState
+状态机计算出基本的Pose之后，第一个处理的是`LeftHandPose_OverrideState`。是用来覆写左手的Pose的。
+
+在`ABP_ItemAnimLayersBase`中，它实现为：
+
+![anim_lyra_lefthand_override](../assets/UE/anim_lyra_lefthand_override.png)
+
+输入Pose与另一个Pose进行混合，`LeftHandPoseOverride`被设置为`ExplicitTime`，即每次这个节点初始化的时候都会读取`ExplicitTime`指定的时间点的`Pose`，即第0帧的Pose。
+
+![anim_lyra_lh_read_pos](../assets/UE/anim_lyra_lh_read_pos.png)
+
+`LayeredBlendPerBone`指定的[BlendMasks](https://dev.epicgames.com/documentation/en-us/unreal-engine/blend-masks-and-blend-profiles-in-unreal-engine)为`LeftFingersMask`，即指混合左手手指。同时混合之前会调用`SetLeftHandPoseOverride`更新混合权重，里面有个bool开关，决定要不要混合。
+
+![anim_lyra_lh_blend](../assets/UE/anim_lyra_lh_blend.png)
+
+大部分子动画蓝图的这个配置都是关了的，只有`ABP_ShotgunAnimLayers`是开的，他的父类是`ABP_RifleAnimLayers`，这两把枪的动作可以说是一模一样，除了左手握持的姿势有一点点区别，所以`ABP_ShotgunAnimLayers`就用这个功能，做一帧左手握持正确的动画，在这里混合进来，仅微调一下左手的姿势。
+
+![lyraanim_lh_shotgun](../assets/UE/lyraanim_lh_shotgun.png)
+
+## Upperbody/lowerbody split
+有了基本的Localmotion基础Pose，这部分的功能是提供一些Montage播放的Slot，进行上下半身的姿势调整，
+
+![animlyra_upper_lower_body](../assets/UE/animlyra_upper_lower_body.png)
+
+1. `UpperBodyAdditive` Slot 播放的Montage，实现的是动态按权重`UpperbodyDynamicAdditiveWeight`叠加到Locomotion输出上。权重的更新`UpdateBlendWeightData()`实现的逻辑是：
+* 玩家在地上，并且有montage在播的时候直接以1全量叠加。
+* 如果不满足上面条件时，1渐渐插值到0，平滑地结束叠加，比如突然跳起来时。
+
+    这里Slot的名字虽然叫`UpperBodyAdditive`，但它仍然是全身叠加的。这个Slot播放的动画必须是叠加动画，期望的是只有上半身的叠加动作，不然估计效果会不对。
+
+2. `UpperBody` Slot 是不论这个Slot播的啥，最终都只会叠加上半身。因为后面的`Layered lend per bone`用的是`UpperBodyLowerBodySplitMask`，这个mask下半身都是0。虽然这里Blend Weight是写死的0，但是仍然会按Blend Mask里面对每个骨骼设置的Mask权重进行混合。
+
+4. `FullBodyAdditivePreAim` 就是一个普通的Slot了，爱播啥就播啥，按Montage的逻辑处理。例如射击动作：`AM_MM_Pistol_Fire`。
+
+5. 装弹动作的处理，装弹动作在`UpperBody`和`UpperBodyAdditive`都在播放，分别播放装弹动作的非叠加版本和叠加版本。这样做估计是想让换弹动作在叠加到Locomotion后，再和基础的换弹动作blend一下，使即使叠加了幅度很大的Locomotion，也让换弹动作看起来更平滑。
+
+![animlyra_reload](../assets/UE/animlyra_reload.png)
+
+## FullBody_Aiming
+
+
+
+# Reference
+
+* https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/
+* https://zhuanlan.zhihu.com/p/664971350
+* https://zhuanlan.zhihu.com/p/654430436
