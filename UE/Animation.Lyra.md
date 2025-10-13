@@ -39,10 +39,25 @@
 
 ## FullBody_Aiming
 
+瞄准通常是基于idle状态的，Lyra中有四种Idle状态：没有武器的Idle、Idle Hipfire(腰射)、Idle ADS(Aim down sight开镜瞄准)、Crouch Idle，均要考虑瞄准。
 
+![animlyra_aim_offset](../assets/UE/animlyra_aim_offset.png)
+
+动画蓝图中，AimOffset只分了两种，RelaxedAimOffset和IdleAimOffset，RelaxedAimOffset在所有AimLinkedLayer的实现都是`AO_MM_Unarmed_Idle_Ready`，即没有武器的AO，只有头上下左右看。持有不同的武器，对应不同的AimLinkedLayer实现，有不同AO，`AO_MF_Pistol_Idle_ADS`，`AO_MM_Rifle_Idle_ADS`。在做AO中每个方向的动画时，[要满足这里提到的条件](Animation.MontageAndSlot.md#animation-additive-or-nonadditive)，BaseAnimation需要是对应的Idle状态。
+
+这里为啥还要和没有武器的Idle瞄准Blend呢？而且AimOffsetBlendWeight的计算还挺复杂，HipFireUpperBodyOverrideWeight又是什么。
+
+## AnimLinkedLayer - FullBodyAdditives
+
+这是给AimLinkedLayer实现FullBodyAdditives接口，Layer中是按武器分不同的AimLinkedLayer的，这里是特定武器相关的动作叠加。
+
+Layer给的一个实现例子是跳起来后的着陆动画:
+
+![animlyra_lading_additives](../assets/UE/animlyra_lading_additives.png)
 
 # Reference
 
 * https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/
 * https://zhuanlan.zhihu.com/p/664971350
 * https://zhuanlan.zhihu.com/p/654430436
+* [Documentation Aim offset](https://dev.epicgames.com/documentation/en-us/unreal-engine/aim-offset-in-unreal-engine)
