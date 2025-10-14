@@ -55,9 +55,24 @@ Layer给的一个实现例子是跳起来后的着陆动画:
 
 ![animlyra_lading_additives](../assets/UE/animlyra_lading_additives.png)
 
+在这个后面还有一个`FullBody Slot`，可以用来播放全身Override的Montage，比如闪现，不用被瞄准等动作覆盖。
+
+![animlyra_fullbody_inertialization](../assets/UE/animlyra_fullbody_inertialization.png)
+
+而`Inertialization`，惯性混合，一些Blend节点、状态机的过渡条件可以配置过渡类型为`Inertialization`。传统混合在过渡期间会计算源姿势和目标姿势，然后合成混合姿势。
+
+![animlyra_inertialia](../assets/UE/animlyra_inertialia.png)
+
+而惯性混合不会再计算Source姿势，？
+
+1. 记录切换瞬间的状态：当动画状态切换时（例如从“奔跑”切换到“行走”），系统会记录当前动画的骨骼位置、旋转及其变化速率（速度）。所以不会再计算SourcePose。
+2. 应用惯性衰减：在新动画播放初期，系统会将记录的“速度”作为惯性力施加到新动画上，并随时间指数衰减（类似弹簧阻尼系统），使新旧动画的过渡更连续。
+3. 通过数学公式（如阻尼振荡）计算过渡曲线，避免线性混合的突兀感。
+
 # Reference
 
 * https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/
 * https://zhuanlan.zhihu.com/p/664971350
 * https://zhuanlan.zhihu.com/p/654430436
 * [Documentation Aim offset](https://dev.epicgames.com/documentation/en-us/unreal-engine/aim-offset-in-unreal-engine)
+* [惯性化混合](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/blend-nodes?application_version=4.27#%E6%83%AF%E6%80%A7%E5%8C%96)
