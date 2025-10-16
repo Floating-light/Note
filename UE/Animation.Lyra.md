@@ -69,6 +69,16 @@ Layer给的一个实现例子是跳起来后的着陆动画:
 2. 应用惯性衰减：在新动画播放初期，系统会将记录的“速度”作为惯性力施加到新动画上，并随时间指数衰减（类似弹簧阻尼系统），使新旧动画的过渡更连续。
 3. 通过数学公式（如阻尼振荡）计算过渡曲线，避免线性混合的突兀感。
 
+## TurnInPlace
+
+在玩家转动视角时，角色会先整个MeshComponent旋转到当前View，此时是滑步转过去的。所以这里用`RotateRootBone`转`RootYawOffset`回去，抵消这个滑步：
+
+![animlyra_RotateRootBone](../assets/UE/animlyra_RotateRootBone.png)
+
+然后用AimOffset，将`AimYaw`设为`-RootYawOffset`，使角色**上半身姿势**恢复到当前View方向。在`SetRootYawOffset()`中执行了`AimYaw`和`RootYawOffset`的计算。
+
+然后每帧用全身的旋转动画，慢慢转回去。
+
 # Reference
 
 * https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/
