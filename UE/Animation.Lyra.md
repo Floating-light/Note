@@ -146,10 +146,18 @@ UpdateAnimationGraph：
 
 * 如果进入`TurnInPlaceRecovery`状态后，`RootYawOffset`没有大于50，不需要转回`TurnInPlaceRotation`，就会继续之前的进度把剩下的转向进度播完。然后回到Idle状态。因为剩下来的动画中，`RemainingTurnYaw`和`TurnYawWeight`都为0，`RootYawOffset`不会受到影响。
 
-没转满90度，RootYawOffset就为0了怎么办？
+### 没转满90度，RootYawOffset就为0了怎么办？
+无论如何`TurnInPlaceRotation`都会把转身动画播到`TurnYawWeight`都为0才转换到下一个状态的，所以一定会播完90度转身，但同时`ProcessTurnYawCurve`中也会一直减掉转身的角度，无非是最终从-50度到+40度，最终姿势肯定是对的。打印出转身过程`RootYawOffset`的变化：
 
-AutomaticRuleBasedTransition ？ 
+![animlyra_trun_full](../assets/UE/animlyra_trun_full.png)
 
+最后多转的35度，同样会用AimOffset补偿回来。
+
+### AutomaticRuleBasedTransition 
+![animlyra_automaticrule](../assets/UE/animlyra_automaticrule.png)
+有一种特殊的过渡条件`bAutomaticRuleBasedOnSequencePlayerInState`，和`AutomaticRuleTriggerTime`配合使用，当前面一个勾上时，会基于最相关的正在播放的Anim的剩余时间决定开始转换：
+* 如果`AutomaticRuleTriggerTime<0`，就用下面BlendSetting的Duration，当剩余这么长时间时开始Blendout。
+* 如果`AutomaticRuleTriggerTime>0`，就用`AutomaticRuleTriggerTime`自己。
 
 # Reference
 
@@ -159,3 +167,4 @@ AutomaticRuleBasedTransition ？
 * [Documentation Aim offset](https://dev.epicgames.com/documentation/en-us/unreal-engine/aim-offset-in-unreal-engine)
 * [惯性化混合](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/blend-nodes?application_version=4.27#%E6%83%AF%E6%80%A7%E5%8C%96)
 * [animation-blueprint-node-functions-in-unreal-engine](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/animation-blueprint-node-functions-in-unreal-engine)
+* [Transition rules](https://dev.epicgames.com/documentation/zh-cn/unreal-engine/transition-rules-in-unreal-engine)
