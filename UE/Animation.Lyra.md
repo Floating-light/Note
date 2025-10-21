@@ -160,9 +160,11 @@ UpdateAnimationGraph：
 * 如果`AutomaticRuleTriggerTime>0`，就用`AutomaticRuleTriggerTime`自己。
 
 ### 总结
-由于转身动画与角色的Idle姿势强相关，而角色不同的状态Idle姿势又不同，且空手、不同武器、性别相关的动画是由不同的`ABP_ItemAnimLayersBase`派生动画蓝图配置的，所以自然转身动画也是在这里配置的,AnimLayer`FullBody_IdleState`这里也实现了具体播放转身动画的逻辑，可以看出，转身动画是在Idle AnimLayer的状态机里面实现的状态转换。
+由于转身动画与角色的Idle姿势强相关，而角色不同的状态Idle姿势又不同，空手、不同武器、性别相关的动画是由不同的`ABP_ItemAnimLayersBase`派生动画蓝图配置的，所以自然转身动画也是在这里配置的。AnimLayer`FullBody_IdleState`这里实现了具体播放转身动画的逻辑，可以看出，转身动画是在Idle AnimLayer的状态机里面实现的状态转换。
 
-主动画蓝图主要是维护和更新`RootYawOffset`相关数据更新的逻辑，确定了`RootYawOffset`和`AimYaw`互相抵消，保证角色朝向正确。在动画蓝图中确定当前`RootYawOffset`的工作模式，是否需要，是否累计等，同时也根据`RemainingTurnYaw`
+主动画蓝图主要是维护和更新`RootYawOffset`相关数据更新的逻辑，确定了`RootYawOffset`和`AimYaw`互相抵消，保证角色朝向正确。在动画蓝图中确定当前`RootYawOffset`的工作模式，是否需要，是否累计等。当允许累计RootYawOffset，或者说允许RootYawOffset生效时，这通常是在Idle状态下，当跑或者跳的时候就不用这样了。在允许`RootYawOffset`时，根据`RemainingTurnYaw`和`TurnYawWeight`曲线的值，抵消掉`RootYawOffset`。
+
+也就是说，转身动画何时播放，怎么播放，由AnimLayer的实现决定，`ABP_ItemAnimLayersBase`就实现了，在`RootYawOffset`>50时就开始播转身动画，且快速转身时会连续播，为了让`RootYawOffset`能够被转身动画转的角度实时抵消，转身动画必须包含`RemainingTurnYaw`和`TurnYawWeight`，这样主动画蓝图才能正常抵消转的角度。
 
 
 TurnYawWeight
