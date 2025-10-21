@@ -151,7 +151,7 @@ UpdateAnimationGraph：
 
 ![animlyra_trun_full](../assets/UE/animlyra_trun_full.png)
 
-最后多转的35度，同样会用AimOffset补偿回来。
+最后多转的35度，同样会用AimOffset补偿回来。这里我其实是转到-50，然后触发的转身动画，转身动画是90度，为啥这里不是多转40度？因为有混合阶段，动画曲线的值也会按权重混合，开始阶段，我们读到的动画曲线的值是(权重*动画曲线实际值)。
 
 ### AutomaticRuleBasedTransition 
 ![animlyra_automaticrule](../assets/UE/animlyra_automaticrule.png)
@@ -159,6 +159,13 @@ UpdateAnimationGraph：
 * 如果`AutomaticRuleTriggerTime<0`，就用下面BlendSetting的Duration，当剩余这么长时间时开始Blendout。
 * 如果`AutomaticRuleTriggerTime>0`，就用`AutomaticRuleTriggerTime`自己。
 
+### 总结
+由于转身动画与角色的Idle姿势强相关，而角色不同的状态Idle姿势又不同，且空手、不同武器、性别相关的动画是由不同的`ABP_ItemAnimLayersBase`派生动画蓝图配置的，所以自然转身动画也是在这里配置的,AnimLayer`FullBody_IdleState`这里也实现了具体播放转身动画的逻辑，可以看出，转身动画是在Idle AnimLayer的状态机里面实现的状态转换。
+
+主动画蓝图主要是维护和更新`RootYawOffset`相关数据更新的逻辑，确定了`RootYawOffset`和`AimYaw`互相抵消，保证角色朝向正确。在动画蓝图中确定当前`RootYawOffset`的工作模式，是否需要，是否累计等，同时也根据`RemainingTurnYaw`
+
+
+TurnYawWeight
 # Reference
 
 * https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/
